@@ -1,161 +1,176 @@
 """
-Query Agent Orchestrator (LangGraph)
-------------------------------------
-Wraps the QueryPlanner in a stateful graph.
-Provides a human-in-the-loop fallback: if the retrieval confidence 
-is too low, the agent pauses execution and asks the user for clarification
-before synthesizing a final answer.
+Query Orchestrator
+------------------
+A stateful query agent that:
+  1. Runs the QueryPlanner to retrieve + synthesize
+  2. Checks confidence threshold
+  3. If confidence too low → pauses and asks the user for clarification
+     (human-in-the-loop, Karpathy "don't hallucinate" principle)
+  4. Returns structured answer with provenance
+
+Uses LangGraph if available; falls back to a pure-Python state machine.
 """
 
 import logging
-from typing import Annotated, TypedDict, Dict, Any, List
-from langgraph.graph import StateGraph, START, END
-
-from ..query.planner import QueryPlanner
+from typing import Optional
 
 log = logging.getLogger(__name__)
 
-# ─── 1. Define the Agent State ─────────────────────────────────────────────
 
-class AgentState(TypedDict):
-    question: str
-    chat_history: List[str]          # To keep track of multi-turn clarifications
-    planner_result: Dict[str, Any]   # Stores mode, sources, confidence, and initial answer
-    needs_clarification: bool        # Flag to trigger human-in-the-loop
-    clarification_prompt: str        # The question to ask the user
-    final_answer: str                # The ultimate output to display
-
-# ─── 2. Define the Graph Nodes ─────────────────────────────────────────────
+# ─── Orchestrator ─────────────────────────────────────────────────────────────
 
 class QueryOrchestrator:
-    def __init__(self, planner: QueryPlanner, confidence_threshold: float = 0.4):
+    CONFIDENCE_THRESHOLD = 0.25  # below this → ask for clarification
+
+    def __init__(self, planner, hitl: bool = True):
+        """
+        planner: QueryPlanner instance
+        hitl: enable human-in-the-loop clarification
+        """
         self.planner = planner
-        self.threshold = confidence_threshold
-        
-        # Build the graph
-        workflow = StateGraph(AgentState)
-        
-        # Add nodes
-        workflow.add_node("plan_and_retrieve", self._node_plan_and_retrieve)
-        workflow.add_node("evaluate_confidence", self._node_evaluate_confidence)
-        workflow.add_node("ask_human", self._node_ask_human)
-        workflow.add_node("format_output", self._node_format_output)
-        
-        # Define edges (The flow of the agent)
-        workflow.add_edge(START, "plan_and_retrieve")
-        workflow.add_edge("plan_and_retrieve", "evaluate_confidence")
-        
-        # Conditional routing based on confidence
-        workflow.add_conditional_edges(
-            "evaluate_confidence",
-            self._route_evaluation,
-            {
-                "clarify": "ask_human",
-                "respond": "format_output"
-            }
-        )
-        
-        # If we ask the human, the loop goes back to plan_and_retrieve with the new context
-        workflow.add_edge("ask_human", "plan_and_retrieve")
-        workflow.add_edge("format_output", END)
-        
-        # Compile the graph (We use a simple memory checkpointer in production for interrupts)
-        self.app = workflow.compile()
+        self.hitl    = hitl
+        self._try_langgraph()
 
-    # ─── Node Implementations ──────────────────────────────────────────────
+    def _try_langgraph(self):
+        """Try to wire up LangGraph; degrade gracefully if not installed."""
+        try:
+            from langgraph.graph import StateGraph, END
+            self._has_langgraph = True
+            log.info("[agent] LangGraph available")
+        except ImportError:
+            self._has_langgraph = False
+            log.info("[agent] LangGraph not installed — using built-in state machine")
 
-    def _node_plan_and_retrieve(self, state: AgentState) -> AgentState:
-        """Runs the query planner to fetch sources and draft an answer."""
-        log.info("[agent] Running QueryPlanner...")
-        
-        # If there's chat history, append it to the question for context
-        full_context = "\n".join(state.get("chat_history", []) + [state["question"]])
-        
-        result = self.planner.query(full_context)
-        return {"planner_result": result}
+    # ── Main entry point ──────────────────────────────────────────────────────
 
-    def _node_evaluate_confidence(self, state: AgentState) -> AgentState:
-        """Checks if the planner is confident enough to answer."""
-        confidence = state["planner_result"].get("confidence", 0.0)
-        sources = state["planner_result"].get("sources", [])
-        
-        log.info(f"[agent] Evaluating confidence: {confidence}")
-        
-        if confidence < self.threshold or not sources:
-            return {
-                "needs_clarification": True,
-                "clarification_prompt": "I couldn't find strong evidence in your notes for this. Can you provide more context or a different keyword?"
-            }
-        
-        return {"needs_clarification": False}
-
-    def _node_ask_human(self, state: AgentState) -> AgentState:
+    def ask(self, question: str, mode: str = "auto",
+            clarification: str = None) -> str:
         """
-        In a real UI, this node would interrupt execution and wait for user input.
-        For now, we simulate asking the user and appending it to chat history.
+        Ask a question and get an answer with provenance.
+        If confidence is low and hitl=True, will ask for clarification interactively.
         """
-        prompt = state["clarification_prompt"]
-        print(f"\n[AGENT PAUSE]: {prompt}")
-        
-        # Get user input from the console (or API in the future)
-        user_input = input("Your clarification: ")
-        
-        new_history = state.get("chat_history", [])
-        new_history.append(f"System: {prompt}")
-        new_history.append(f"User Clarification: {user_input}")
-        
-        return {
-            "chat_history": new_history,
-            "needs_clarification": False # Reset flag
-        }
+        if self._has_langgraph:
+            return self._langgraph_flow(question, mode, clarification)
+        return self._simple_flow(question, mode, clarification)
 
-    def _node_format_output(self, state: AgentState) -> AgentState:
-        """Formats the final answer with citations."""
-        res = state["planner_result"]
-        answer = res["answer"]
-        sources = res.get("sources", [])
-        
-        citations = "\n".join([f"- {s['title']} (Score: {s['score']})" for s in sources])
-        final_out = f"{answer}\n\nSources:\n{citations}"
-        
-        return {"final_answer": final_out}
+    # ── Simple state machine (no LangGraph) ───────────────────────────────────
 
-    # ─── Routing Logic ─────────────────────────────────────────────────────
+    def _simple_flow(self, question: str, mode: str,
+                     clarification: Optional[str]) -> str:
+        # If clarification was provided, append it to the question
+        effective_q = question
+        if clarification:
+            effective_q = f"{question}\n\nAdditional context: {clarification}"
 
-    def _route_evaluation(self, state: AgentState) -> str:
-        """Decides which node to go to next based on the needs_clarification flag."""
-        if state.get("needs_clarification"):
-            return "clarify"
-        return "respond"
+        result = self.planner.query(effective_q, mode=mode)
+        confidence = result.get("confidence", 0)
 
-    # ─── Public API ────────────────────────────────────────────────────────
+        # Low confidence → ask for clarification if in HITL mode
+        if confidence < self.CONFIDENCE_THRESHOLD and self.hitl:
+            print(f"\n[brain] Low confidence ({confidence:.2f}) for: '{question}'")
+            print("[brain] I found the following potentially relevant topics:")
+            for s in result.get("sources", [])[:3]:
+                print(f"  - {s['title']}")
+            print("\n[brain] Can you clarify what you're looking for?")
+            print("[brain] (Press Enter to accept the current answer, or type clarification)")
+            try:
+                user_input = input("> ").strip()
+                if user_input:
+                    return self._simple_flow(question, mode, user_input)
+            except (EOFError, KeyboardInterrupt):
+                pass
 
-    def ask(self, question: str) -> str:
-        """Entry point to kick off the graph execution."""
-        initial_state = {
-            "question": question,
-            "chat_history": [],
-            "planner_result": {},
-            "needs_clarification": False,
-            "clarification_prompt": "",
-            "final_answer": ""
-        }
-        
-        # Run the graph
-        final_state = self.app.invoke(initial_state)
-        return final_state["final_answer"]
+        return self._format_answer(result)
 
-if __name__ == "__main__":
-    # Simple test execution
-    from ..store import Store
-    from ..embeddings import LocalEmbeddingProvider
-    
-    # Mock setup
-    db = Store("data/brain.db")
-    embedder = LocalEmbeddingProvider()
-    planner = QueryPlanner(db, embedder)
-    
-    agent = QueryOrchestrator(planner)
-    
-    # Example usage
-    print(agent.ask("What are my core arguments regarding neuro-symbolic systems?"))
+    # ── LangGraph flow ────────────────────────────────────────────────────────
+
+    def _langgraph_flow(self, question: str, mode: str,
+                        clarification: Optional[str]) -> str:
+        try:
+            from langgraph.graph import StateGraph, END
+            from typing import TypedDict, Annotated
+
+            class AgentState(TypedDict):
+                question:      str
+                mode:          str
+                clarification: Optional[str]
+                result:        Optional[dict]
+                needs_hitl:    bool
+                final_answer:  str
+
+            def retrieve_node(state: AgentState) -> AgentState:
+                q = state["question"]
+                if state.get("clarification"):
+                    q += "\n\nAdditional context: " + state["clarification"]
+                result = self.planner.query(q, mode=state["mode"])
+                needs_hitl = (
+                    result.get("confidence", 0) < self.CONFIDENCE_THRESHOLD
+                    and self.hitl
+                    and not state.get("clarification")  # only ask once
+                )
+                return {**state, "result": result, "needs_hitl": needs_hitl}
+
+            def hitl_node(state: AgentState) -> AgentState:
+                result = state["result"]
+                print(f"\n[brain] Low confidence ({result.get('confidence', 0):.2f})")
+                print("[brain] Potentially relevant:")
+                for s in result.get("sources", [])[:3]:
+                    print(f"  - {s['title']}")
+                print("[brain] Clarification? (Enter to accept)")
+                try:
+                    user_input = input("> ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    user_input = ""
+                return {**state, "clarification": user_input or None,
+                        "needs_hitl": False}
+
+            def format_node(state: AgentState) -> AgentState:
+                return {**state,
+                        "final_answer": self._format_answer(state["result"])}
+
+            def should_hitl(state: AgentState) -> str:
+                return "hitl" if state["needs_hitl"] else "format"
+
+            graph = StateGraph(AgentState)
+            graph.add_node("retrieve", retrieve_node)
+            graph.add_node("hitl",    hitl_node)
+            graph.add_node("format",  format_node)
+
+            graph.set_entry_point("retrieve")
+            graph.add_conditional_edges("retrieve", should_hitl,
+                                        {"hitl": "hitl", "format": "format"})
+            graph.add_edge("hitl", "retrieve")
+            graph.add_edge("format", END)
+
+            app = graph.compile()
+            final_state = app.invoke({
+                "question":      question,
+                "mode":          mode,
+                "clarification": clarification,
+                "result":        None,
+                "needs_hitl":    False,
+                "final_answer":  "",
+            })
+            return final_state["final_answer"]
+
+        except Exception as e:
+            log.warning(f"[agent] LangGraph flow failed ({e}), using simple flow")
+            return self._simple_flow(question, mode, clarification)
+
+    # ── Formatting ────────────────────────────────────────────────────────────
+
+    def _format_answer(self, result: dict) -> str:
+        answer     = result.get("answer", "No answer generated.")
+        sources    = result.get("sources", [])
+        mode       = result.get("mode", "?")
+        confidence = result.get("confidence", 0)
+
+        lines = [answer, ""]
+
+        if sources:
+            lines.append(f"── Sources [{mode}, confidence={confidence:.2f}] ──")
+            for s in sources[:5]:
+                date = f" ({s['date'][:10]})" if s.get("date") else ""
+                lines.append(f"  • {s['title']}{date}")
+
+        return "\n".join(lines)
