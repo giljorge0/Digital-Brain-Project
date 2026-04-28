@@ -1,0 +1,29 @@
+# ── Core ──────────────────────────────────────────────────────────────────────
+networkx>=3.2
+# python-louvain is imported as `community`, package name is python-louvain
+python-louvain>=0.16
+
+# ── Embeddings ────────────────────────────────────────────────────────────────
+# Local embeddings (default, no API key needed):
+sentence-transformers>=2.7.0
+
+# Optional: GPU acceleration for local embeddings
+# torch>=2.0.0  # uncomment if you have a GPU
+
+# ── PDF parsing (install at least one) ────────────────────────────────────────
+pdfminer.six>=20221105
+# pymupdf>=1.23.0  # faster alternative, uncomment if preferred
+
+# ── YAML config ───────────────────────────────────────────────────────────────
+PyYAML>=6.0
+
+# ── Optional: LangGraph for query orchestration ───────────────────────────────
+# langgraph>=0.0.40
+# langchain-core>=0.1.0
+
+# ── Optional: better progress bars ───────────────────────────────────────────
+tqdm>=4.66.0
+
+# ── Standard library only (no install needed) ─────────────────────────────────
+# sqlite3, json, pathlib, urllib, hashlib, re, datetime, math, logging
+# These are all used but come with Python 3.9+

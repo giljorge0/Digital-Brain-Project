@@ -1,0 +1,54 @@
+# Digital Brain Configuration
+# ----------------------------
+# Copy to config.yaml and fill in your values.
+# All values can also be set via environment variables (shown as comments).
+
+# ── LLM Backend ────────────────────────────────────────────────────────────────
+# Options: "claude" | "ollama"
+# Env: BRAIN_LLM_BACKEND
+llm_backend: "claude"
+
+# Anthropic API key (for claude backend)
+# Env: ANTHROPIC_API_KEY
+anthropic_api_key: ""
+
+# Which Claude model to use for LLM tasks
+# claude-haiku-4-5-20251001  → fast, cheap, good for extraction
+# claude-sonnet-4-6          → smarter, better for persona/wiki
+# Env: BRAIN_CLAUDE_MODEL
+claude_model: "claude-haiku-4-5-20251001"
+
+# Ollama settings (for local LLM backend)
+# Env: BRAIN_OLLAMA_URL, BRAIN_OLLAMA_MODEL
+ollama_base_url: "http://localhost:11434"
+ollama_model: "mistral"
+
+# ── Embeddings ─────────────────────────────────────────────────────────────────
+# Options: "local" | "ollama" | "claude" (voyage)
+# Env: BRAIN_EMBED_BACKEND
+embedding_backend: "local"
+
+# Local sentence-transformers model
+# all-MiniLM-L6-v2     → fast, 384 dims, good for most uses
+# all-mpnet-base-v2    → better quality, 768 dims
+# Env: BRAIN_EMBED_MODEL
+local_embedding_model: "all-MiniLM-L6-v2"
+
+# Ollama embedding model (if embedding_backend = "ollama")
+ollama_embedding_model: "nomic-embed-text"
+
+# Voyage model (if embedding_backend = "claude")
+voyage_model: "voyage-3"
+
+# ── Graph settings ──────────────────────────────────────────────────────────────
+# Cosine similarity threshold for creating semantic edges
+# 0.75 = only very similar notes are connected
+# 0.60 = more connections, noisier graph
+semantic_threshold: 0.75
+
+# ── Consolidation ──────────────────────────────────────────────────────────────
+# Max LLM calls for relation extraction per consolidation run
+max_relation_pairs: 200
+
+# Max LLM calls for contradiction checking per run
+max_contradiction_checks: 100
