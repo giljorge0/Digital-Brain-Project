@@ -1,0 +1,128 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# configs/llm_profiles.yaml
+#
+# Add as many profiles as you like. Each profile = one named account on
+# one provider. You can have multiple accounts per provider (e.g. two
+# Anthropic API keys for different projects).
+#
+# Roles:
+#   heavy        — expensive tasks: relation extraction, consolidation
+#   daily        — everyday queries, gap analysis
+#   embed        — embeddings (local is cheapest)
+#   gap_analysis — knowledge gap + recommendation agent
+#
+# Keys can be inline here (not recommended for git) or set as env vars.
+# If api_key is blank the system reads the matching env var:
+#   claude       → ANTHROPIC_API_KEY
+#   openai       → OPENAI_API_KEY
+#   deepseek     → DEEPSEEK_API_KEY
+#   gemini       → GEMINI_API_KEY
+#   perplexity   → PERPLEXITY_API_KEY
+# ─────────────────────────────────────────────────────────────────────────────
+
+profiles:
+
+  # ── Claude (Anthropic) ───────────────────────────────────────────────────
+  - name: claude_primary
+    provider: claude
+    model: claude-opus-4-5         # heavy reasoning
+    api_key: ""                    # reads ANTHROPIC_API_KEY
+    role: heavy
+
+  - name: claude_daily
+    provider: claude
+    model: claude-sonnet-4-5       # fast daily driver
+    api_key: ""
+    role: daily
+
+  # Uncomment to add a second Anthropic account (e.g. a team/work key)
+  # - name: claude_work
+  #   provider: claude
+  #   model: claude-sonnet-4-5
+  #   api_key: sk-ant-WORK_KEY_HERE
+  #   role: daily
+
+  # ── OpenAI / ChatGPT ─────────────────────────────────────────────────────
+  - name: openai_primary
+    provider: openai
+    model: gpt-4o
+    api_key: ""                    # reads OPENAI_API_KEY
+    role: heavy
+
+  - name: openai_mini
+    provider: openai
+    model: gpt-4o-mini
+    api_key: ""
+    role: daily
+
+  # Second OpenAI account:
+  # - name: openai_research
+  #   provider: openai
+  #   model: gpt-4o
+  #   api_key: sk-SECOND_KEY_HERE
+  #   role: heavy
+
+  # ── DeepSeek ─────────────────────────────────────────────────────────────
+  - name: deepseek_primary
+    provider: deepseek
+    model: deepseek-chat
+    api_key: ""                    # reads DEEPSEEK_API_KEY
+    role: daily
+
+  - name: deepseek_reasoner
+    provider: deepseek
+    model: deepseek-reasoner       # R1 — slow but deep
+    api_key: ""
+    role: heavy
+
+  # ── Google Gemini ─────────────────────────────────────────────────────────
+  - name: gemini_primary
+    provider: gemini
+    model: gemini-1.5-pro
+    api_key: ""                    # reads GEMINI_API_KEY
+    role: heavy
+
+  - name: gemini_flash
+    provider: gemini
+    model: gemini-1.5-flash
+    api_key: ""
+    role: daily
+
+  # ── Perplexity (best for "recommend reads" — has live search) ────────────
+  - name: perplexity_default
+    provider: perplexity
+    model: sonar-pro
+    api_key: ""                    # reads PERPLEXITY_API_KEY
+    role: daily
+    # Perplexity is specifically used by the gap agent for recommended_reads
+    # because it can search the live web for recent philosophy papers.
+
+  # ── Local Ollama (free, runs on your machine) ────────────────────────────
+  - name: ollama_mistral
+    provider: ollama
+    model: mistral
+    base_url: http://localhost:11434
+    role: daily
+
+  - name: ollama_nomic_embed
+    provider: ollama
+    model: nomic-embed-text        # fast local embeddings
+    base_url: http://localhost:11434
+    role: embed
+
+  # Add more local models as you pull them:
+  # - name: ollama_llama3
+  #   provider: ollama
+  #   model: llama3
+  #   base_url: http://localhost:11434
+  #   role: daily
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Role defaults — which profile to use for each task type
+# ─────────────────────────────────────────────────────────────────────────────
+defaults:
+  heavy:        claude_primary       # relation extraction, consolidation
+  daily:        deepseek_primary     # fast everyday queries
+  embed:        ollama_nomic_embed   # local embeddings (free)
+  gap_analysis: claude_daily         # gap detection + one-sided claims
+  # recommended reads uses 'perplexity_default' automatically (live search)
