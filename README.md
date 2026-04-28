@@ -16,7 +16,7 @@ This system moves beyond standard Retrieval-Augmented Generation (RAG) by utiliz
 
 ## Repository Structure
 
-digital-brain/
+<pre><code>digital-brain/
 ├── main.py
 ├── context.txt
 ├── requirements.txt
@@ -47,8 +47,7 @@ digital-brain/
     └── visualize/
         ├── __init__.py
         └── export.py
-
-
+</code></pre>
 ## Usage
 
 The system is controlled entirely through the `main.py` CLI. 
