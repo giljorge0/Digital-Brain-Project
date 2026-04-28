@@ -119,7 +119,8 @@ class ImportManager:
     @staticmethod
     def parse_pdf_text(directory: Path) -> List[Note]:
         """
-        Extracts text from PDFs. 
+        Extracts text from PDFs using Hierarchical Chunking.
+        Creates one Parent note for the document, and sequential Child notes for the chunks.
         Requires: pip install PyPDF2
         """
         notes = []
@@ -132,19 +133,71 @@ class ImportManager:
         for path in directory.glob("*.pdf"):
             try:
                 reader = PdfReader(path)
-                text = ""
+                full_text = ""
                 for page in reader.pages:
-                    text += page.extract_text() + "\n\n"
-                    
-                notes.append(Note(
-                    id=Note.make_id(str(path)),
-                    title=f"PDF: {path.stem}",
-                    content=text.strip(),
-                    tags=["pdf", "document"],
+                    # Extract text and clean up basic formatting
+                    page_text = page.extract_text()
+                    if page_text:
+                        full_text += page_text + "\n\n"
+
+                if not full_text.strip():
+                    continue
+
+                # 1. Create the PARENT Note
+                parent_id = Note.make_id(f"pdf_parent_{path.name}")
+                parent_note = Note(
+                    id=parent_id,
+                    title=f"Essay: {path.stem}",
+                    content=f"Full document container for: {path.name}",
+                    tags=["essay", "longform", "pdf_parent"],
                     source_file=str(path),
                     date=datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc),
-                    metadata={"type": "pdf", "pages": len(reader.pages)}
-                ))
+                    metadata={"type": "pdf_parent", "pages": len(reader.pages)}
+                )
+                notes.append(parent_note)
+
+                # 2. Chunk the text (Targeting ~250 words per chunk for atomic embedding)
+                paragraphs = full_text.split('\n\n')
+                chunks = []
+                current_chunk = ""
+                
+                for p in paragraphs:
+                    current_chunk += p.strip() + "\n\n"
+                    # If chunk exceeds ~250 words, save it and start a new one
+                    if len(current_chunk.split()) > 250:
+                        chunks.append(current_chunk.strip())
+                        current_chunk = ""
+                if current_chunk.strip():
+                    chunks.append(current_chunk.strip()) # catch the remainder
+
+                # 3. Create the CHILD Notes
+                prev_child_id = None
+                for i, chunk in enumerate(chunks):
+                    child_id = Note.make_id(f"pdf_chunk_{path.name}_{i}")
+                    
+                    # Graph Links: Link to parent, and link to the previous chunk
+                    links = [parent_id]
+                    if prev_child_id:
+                        links.append(prev_child_id)
+                        
+                    child_note = Note(
+                        id=child_id,
+                        title=f"{path.stem} (Part {i+1}/{len(chunks)})",
+                        content=chunk,
+                        tags=["pdf_chunk", "essay_argument"],
+                        source_file=str(path),
+                        links=links, # These become explicit edges in the GraphBuilder
+                        metadata={
+                            "type": "pdf_chunk", 
+                            "parent_id": parent_id, 
+                            "sequence": i
+                        }
+                    )
+                    notes.append(child_note)
+                    prev_child_id = child_id
+
+                log.info(f"[import] Parsed PDF '{path.stem}' into 1 parent and {len(chunks)} chunks.")
+
             except Exception as e:
                 log.error(f"[import] Failed to read PDF {path}: {e}")
                 
