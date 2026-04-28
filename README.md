@@ -67,6 +67,4 @@ Run the nightly continual learning loop to deduplicate claims, flag contradictio
 
     python main.py consolidate
 
-
-## 🔬 Research & Evaluation
-This system was built against a specific research thesis: *Continual memory maintenance and symbolic graph traversal yield better long-horizon retrieval than flat vector databases.* Future updates will include an `eval/` module to benchmark this system against standard RAG baselines using an automated grading rubric.
+This system was built against a specific research thesis: *Continual memory maintenance and symbolic graph traversal yield better long-horizon retrieval than flat vector databases.* Future updates will incl
