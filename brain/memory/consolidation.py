@@ -30,13 +30,16 @@ class ConsolidationAgent:
         """Run the full consolidation pipeline."""
         log.info("[consolidate] Waking up. Starting nightly consolidation...")
         
-        # 1. Update Graph Math first so we have fresh clusters and centrality
+        # 1. Update Graph Math
         self._refresh_graph_metrics()
 
         # 2. Run the memory maintenance routines
         self.link_similar_notes(threshold=0.92)
         self.flag_cluster_contradictions(max_checks=50)
         self.update_confidence_scores()
+        
+        # 3. Audit knowledge debt
+        self.audit_long_notes(word_limit=600)
         
         log.info("[consolidate] Nightly consolidation complete. Going back to sleep.")
 
@@ -170,7 +173,35 @@ class ConsolidationAgent:
             self.store.upsert_note(note)
             
         log.info("[consolidate] Confidence scores updated.")
+# ─── 5. The Length Auditor ─────────────────────────────────────────────────
 
+    def audit_long_notes(self, word_limit: int = 600):
+        """
+        Scans for manually written notes that have grown too long for atomic embedding.
+        Flags them for manual human review instead of blindly chunking them.
+        """
+        log.info(f"[consolidate] Auditing manual notes longer than {word_limit} words...")
+        notes = self.store.get_all_notes()
+        
+        flagged_count = 0
+        for note in notes:
+            # We only care about notes that aren't ALREADY mechanical chunks 
+            # (like pdf_chunks) or raw dumps (like web_clips)
+            is_mechanical = note.metadata.get("type") in ["pdf_chunk", "web_clip", "chat_log"]
+            
+            if not is_mechanical and note.word_count() > word_limit:
+                meta = note.metadata or {}
+                
+                # If it's not already flagged, flag it
+                if not meta.get("needs_refactoring"):
+                    meta["needs_refactoring"] = True
+                    meta["audit_reason"] = f"Note reached {note.word_count()} words. Consider splitting."
+                    note.metadata = meta
+                    
+                    self.store.upsert_note(note)
+                    flagged_count += 1
+                    
+        log.info(f"[consolidate] Flagged {flagged_count} long notes for manual human refactoring.")
 if __name__ == "__main__":
     # Simple test execution if run directly
     import os
