@@ -1,195 +1,276 @@
 """
-Consolidation Loop
-------------------
-The continual learning engine for the digital brain. 
-Runs periodically to maintain the memory substrate by:
-  1. Finding and linking near-duplicate claims (Semantic similarity).
-  2. Flagging contradictions within topical clusters using the LLM.
-  3. Promoting/demoting memory confidence based on graph centrality and recency.
+Consolidation Agent
+-------------------
+The "sleep cycle" of the digital brain.
+
+Runs periodically (cron job or manual trigger) to:
+  1. Re-cluster notes (Louvain community detection)
+  2. Re-compute PageRank centrality
+  3. Detect near-duplicate notes (cosine > 0.95) and flag/merge them
+  4. Flag contradictions within clusters using LLM
+  5. Apply confidence decay to old, low-centrality notes
+  6. Promote recurring patterns to stable memory
+  7. Audit manual notes for length (knowledge debt)
+
+Design principle:
+  The brain gets SMARTER over time, not just bigger.
+  Old stale notes decay. Central ideas strengthen.
+  Contradictions surface rather than silently coexisting.
 """
 
-import logging
 import json
-from datetime import datetime, timezone
-from typing import List
+import logging
+import math
+from datetime import datetime, timedelta
+from typing import Optional
 
-from .store import Store
-from ..extract.relations import RelationExtractor
-from .graph import GraphBuilder
-from .embeddings import _cosine
+from brain.memory.graph import GraphBuilder
+from brain.memory.embeddings import _cosine
 
 log = logging.getLogger(__name__)
 
+
+# ─── Thresholds ───────────────────────────────────────────────────────────────
+DUPLICATE_THRESHOLD   = 0.95   # cosine sim above this → near-duplicate
+DECAY_DAYS_THRESHOLD  = 180    # notes older than this decay faster
+DECAY_BASE_RATE       = 0.05   # 5% confidence loss per consolidation run
+MIN_CONFIDENCE        = 0.1    # floor — never drops to zero
+
+
+# ─── Consolidation Agent ──────────────────────────────────────────────────────
+
 class ConsolidationAgent:
-    def __init__(self, store: Store, extractor: RelationExtractor, graph_builder: GraphBuilder):
-        self.store = store
+    def __init__(self, store, extractor, builder: GraphBuilder):
+        self.store     = store
         self.extractor = extractor
-        self.graph_builder = graph_builder
+        self.builder   = builder
 
     def run_nightly_job(self):
-        """Run the full consolidation pipeline."""
-        log.info("[consolidate] Waking up. Starting nightly consolidation...")
-        
-        # 1. Update Graph Math
-        self._refresh_graph_metrics()
+        log.info("=" * 60)
+        log.info("[consolidate] Starting nightly consolidation...")
+        log.info("=" * 60)
 
-        # 2. Run the memory maintenance routines
-        self.link_similar_notes(threshold=0.92)
-        self.flag_cluster_contradictions(max_checks=50)
-        self.update_confidence_scores()
-        
-        # 3. Audit knowledge debt
-        self.audit_long_notes(word_limit=600)
-        
-        log.info("[consolidate] Nightly consolidation complete. Going back to sleep.")
+        # Step 1: Rebuild graph + recompute metrics
+        log.info("[consolidate] Step 1/6 — Rebuilding graph & metrics...")
+        G = self.builder.build(
+            use_explicit=True,
+            use_tags=True,
+            use_semantic=False,  # skip full semantic rebuild for speed
+        )
+        self.builder.compute_clusters(G)
+        self.builder.compute_centrality(G)
 
-    # ─── 1. Graph Maintenance ──────────────────────────────────────────────────
+        # Step 2: Detect near-duplicates
+        log.info("[consolidate] Step 2/6 — Detecting near-duplicates...")
+        duplicates = self._find_duplicates()
+        self._flag_duplicates(duplicates)
 
-    def _refresh_graph_metrics(self):
-        """Rebuilds the graph, calculates Louvain clusters, and PageRank."""
-        log.info("[consolidate] Refreshing global graph metrics...")
-        G = self.graph_builder.build(use_explicit=True, use_tags=True, use_semantic=True)
-        self.graph_builder.compute_clusters(G)
-        self.graph_builder.compute_centrality(G)
+        # Step 3: Flag contradictions within clusters
+        log.info("[consolidate] Step 3/6 — Detecting contradictions...")
+        contradictions = self._find_contradictions()
+        self._flag_contradictions(contradictions)
 
-    # ─── 2. Deduplication & Merging ────────────────────────────────────────────
+        # Step 4: Confidence decay
+        log.info("[consolidate] Step 4/6 — Applying confidence decay...")
+        self._apply_decay()
 
-    def link_similar_notes(self, threshold: float = 0.92):
-        """Find highly similar notes and link them to merge repeated claims."""
-        log.info(f"[consolidate] Scanning for duplicate claims (threshold > {threshold})...")
+        # Step 5: Surface insights (high-centrality recent notes)
+        log.info("[consolidate] Step 5/6 — Surfacing emerging patterns...")
+        patterns = self._find_emerging_patterns()
+        self._log_patterns(patterns)
+
+        # Step 6: Audit knowledge debt
+        log.info("[consolidate] Step 6/6 — Auditing long manual notes...")
+        long_notes = self.audit_long_notes(word_limit=600)
+
+        log.info("[consolidate] Nightly job complete.")
+        return {
+            "duplicates_flagged": len(duplicates),
+            "contradictions_flagged": len(contradictions),
+            "emerging_patterns": [p["title"] for p in patterns],
+            "long_notes_flagged": long_notes,
+        }
+
+    # ── Step 2: Duplicates ────────────────────────────────────────────────────
+
+    def _find_duplicates(self) -> list:
+        """Find note pairs with cosine similarity > threshold."""
         embeddings = self.store.get_all_embeddings()
-        ids = list(embeddings.keys())
+        if len(embeddings) < 2:
+            return []
+
+        ids  = list(embeddings.keys())
         vecs = [embeddings[i] for i in ids]
-        
-        found = 0
+        pairs = []
+
         for i in range(len(ids)):
             for j in range(i + 1, len(ids)):
                 sim = _cosine(vecs[i], vecs[j])
-                if sim >= threshold:
-                    id_a, id_b = ids[i], ids[j]
-                    
-                    # Instead of deleting, we create a strong 'elaborates' or 'duplicate' edge
-                    # This preserves provenance while grouping the memory.
-                    self.store.upsert_edge(
-                        source=id_a, 
-                        target=id_b, 
-                        edge_type="llm", 
-                        weight=sim,
-                        metadata={"relation": "elaborates", "automated_merge": True}
-                    )
-                    found += 1
-        log.info(f"[consolidate] Found and linked {found} highly similar note pairs.")
+                if sim >= DUPLICATE_THRESHOLD:
+                    pairs.append({
+                        "note_a": ids[i],
+                        "note_b": ids[j],
+                        "similarity": round(sim, 4),
+                    })
 
-    # ─── 3. Contradiction Hunting ──────────────────────────────────────────────
+        log.info(f"[consolidate] Found {len(pairs)} near-duplicate pairs")
+        return pairs
 
-    def flag_cluster_contradictions(self, max_checks: int = 50):
+    def _flag_duplicates(self, pairs: list):
+        for pair in pairs:
+            # Add a "duplicate" edge in the graph
+            self.store.upsert_edge(
+                pair["note_a"], pair["note_b"],
+                edge_type="duplicate",
+                weight=pair["similarity"],
+                metadata={"flagged_by": "consolidation",
+                          "similarity": pair["similarity"]},
+            )
+            log.debug(
+                f"[consolidate] Duplicate: {pair['note_a'][:8]}… ↔ "
+                f"{pair['note_b'][:8]}… ({pair['similarity']:.3f})"
+            )
+
+    # ── Step 3: Contradictions ────────────────────────────────────────────────
+
+    def _find_contradictions(self, max_checks: int = 100) -> list:
         """
-        Looks for conflicting evidence within the same topical cluster.
-        We only check notes in the same cluster to save LLM tokens.
+        Within each cluster, check semantically similar note pairs for
+        contradictions using the LLM extractor.
         """
-        log.info("[consolidate] Hunting for contradictions in semantic clusters...")
         notes = self.store.get_all_notes()
-        
         # Group by cluster
-        clusters = {}
-        for n in notes:
-            if n.cluster is not None:
-                clusters.setdefault(n.cluster, []).append(n)
+        clusters: dict = {}
+        for note in notes:
+            c = note.cluster
+            if c is not None:
+                clusters.setdefault(c, []).append(note)
 
+        contradictions = []
         checks_done = 0
-        contradictions_found = 0
 
         for cluster_id, cluster_notes in clusters.items():
             if len(cluster_notes) < 2:
                 continue
-                
-            # Sort by centrality to compare the most "important" notes in the cluster
-            cluster_notes.sort(key=lambda x: x.centrality, reverse=True)
-            top_notes = cluster_notes[:5] 
-
-            for i, note_a in enumerate(top_notes):
-                for note_b in top_notes[i+1:]:
-                    if checks_done >= max_checks:
+            # Check pairs within cluster (up to 5 pairs per cluster)
+            pairs_checked = 0
+            for i, a in enumerate(cluster_notes):
+                for b in cluster_notes[i + 1:]:
+                    if checks_done >= max_checks or pairs_checked >= 5:
                         break
-                    
-                    checks_done += 1
-                    result = self.extractor.extract_relation(note_a, note_b)
-                    
-                    if result and result.get("relation") == "contradicts":
-                        contradictions_found += 1
-                        self.store.upsert_edge(
-                            source=note_a.id, 
-                            target=note_b.id, 
-                            edge_type="llm", 
-                            weight=result.get("confidence", 0.8),
-                            metadata={
-                                "relation": "contradicts", 
-                                "explanation": result.get("explanation", "Detected during consolidation.")
-                            }
+                    try:
+                        result = self.extractor.check_contradiction(
+                            a.short_content(300),
+                            b.short_content(300),
                         )
-                if checks_done >= max_checks:
-                    break
-        
-        log.info(f"[consolidate] Evaluated {checks_done} pairs, found {contradictions_found} contradictions.")
+                        if result.get("contradicts") and result.get("confidence", 0) > 0.6:
+                            contradictions.append({
+                                "note_a": a.id,
+                                "note_b": b.id,
+                                "confidence": result["confidence"],
+                                "explanation": result.get("explanation", ""),
+                            })
+                    except Exception as e:
+                        log.debug(f"[consolidate] Contradiction check failed: {e}")
+                    checks_done += 1
+                    pairs_checked += 1
 
-    # ─── 4. Confidence / Decay ─────────────────────────────────────────────────
+        log.info(f"[consolidate] Found {len(contradictions)} contradictions")
+        return contradictions
 
-    def update_confidence_scores(self):
+    def _flag_contradictions(self, contradictions: list):
+        for c in contradictions:
+            self.store.upsert_edge(
+                c["note_a"], c["note_b"],
+                edge_type="contradiction",
+                weight=c["confidence"],
+                metadata={
+                    "flagged_by": "consolidation",
+                    "explanation": c["explanation"],
+                },
+            )
+
+    # ── Step 4: Confidence decay ──────────────────────────────────────────────
+
+    def _apply_decay(self):
         """
-        Promotes recurring patterns into stable memory and demotes stale memory.
-        Calculated as a mix of Graph Centrality (how connected it is) and Recency.
+        Reduce confidence of old, low-centrality notes.
+        We use centrality as a proxy for confidence (stored in the notes table).
         """
-        log.info("[consolidate] Updating memory confidence scores (promotion/demotion)...")
-        notes = self.store.get_all_notes()
-        now = datetime.now(timezone.utc)
-        
+        notes    = self.store.get_all_notes()
+        now      = datetime.utcnow()
+        decayed  = 0
+
         for note in notes:
-            # Base confidence comes from how central it is to your network
-            # PageRank values are small, so we scale it up slightly for the metadata
-            base_score = min(note.centrality * 100, 1.0) 
-            
-            # Recency multiplier (decay over time)
-            recency_mult = 1.0
-            if note.date:
-                # Ensure note.date is offset-aware before calculating age
-                note_date = note.date
-                if note_date.tzinfo is None:
-                    note_date = note_date.replace(tzinfo=timezone.utc)
-                    
-                age_days = (now - note_date).days
-                if age_days > 365:
-                    recency_mult = 0.8  # slightly demote old notes unless highly central
-                if age_days < 30:
-                    recency_mult = 1.2  # boost fresh notes
-                    
-            final_confidence = min(round(base_score * recency_mult, 3), 1.0)
-            
-            # Update the note's metadata dictionary with the new confidence score
-            meta = note.metadata or {}
-            meta["confidence"] = final_confidence
-            note.metadata = meta
-            
-            # Save back to SQLite
-            self.store.upsert_note(note)
-            
-        log.info("[consolidate] Confidence scores updated.")
-# ─── 5. The Length Auditor ─────────────────────────────────────────────────
+            if note.date is None:
+                continue
+            age_days = (now - note.date).days if note.date else 0
+            if age_days < DECAY_DAYS_THRESHOLD:
+                continue
 
-    def audit_long_notes(self, word_limit: int = 600):
+            # Decay faster for old + low-centrality notes
+            decay = DECAY_BASE_RATE * (1 + (age_days - DECAY_DAYS_THRESHOLD) / 365)
+            new_centrality = max(
+                MIN_CONFIDENCE,
+                (note.centrality or 0.01) * (1 - decay)
+            )
+            self.store.update_centrality(note.id, round(new_centrality, 6))
+            decayed += 1
+
+        log.info(f"[consolidate] Decayed {decayed} notes")
+
+    # ── Step 5: Emerging patterns ─────────────────────────────────────────────
+
+    def _find_emerging_patterns(self, top_n: int = 10) -> list:
         """
-        Scans for manually written notes that have grown too long for atomic embedding.
-        Flags them for manual human review instead of blindly chunking them.
+        Find notes that have gained centrality recently — these are
+        'emerging ideas' worth surfacing.
         """
-        log.info(f"[consolidate] Auditing manual notes longer than {word_limit} words...")
         notes = self.store.get_all_notes()
-        
+        now   = datetime.utcnow()
+        recent_cutoff = now - timedelta(days=30)
+
+        # Score: centrality × recency boost
+        scored = []
+        for note in notes:
+            if not note.centrality:
+                continue
+            recency_boost = 2.0 if (note.date and note.date > recent_cutoff) else 1.0
+            score = note.centrality * recency_boost
+            scored.append((score, note))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [
+            {"id": n.id, "title": n.title, "score": round(s, 6),
+             "cluster": n.cluster}
+            for s, n in scored[:top_n]
+        ]
+
+    def _log_patterns(self, patterns: list):
+        if not patterns:
+            return
+        log.info("[consolidate] ── Emerging patterns ──────────────────────")
+        for p in patterns:
+            log.info(f"  [{p['cluster']}] {p['title']}  (score={p['score']})")
+
+    # ── Step 6: The Length Auditor ────────────────────────────────────────────
+
+    def audit_long_notes(self, word_limit: int = 600) -> int:
+        """
+        Scans for manually written notes (output) that have grown too long 
+        for atomic embedding. Flags them for manual human review instead of 
+        blindly chunking them.
+        """
+        notes = self.store.get_all_notes()
         flagged_count = 0
+        
         for note in notes:
-            # We only care about notes that aren't ALREADY mechanical chunks 
-            # (like pdf_chunks) or raw dumps (like web_clips)
-            is_mechanical = note.metadata.get("type") in ["pdf_chunk", "web_clip", "chat_log"]
+            # Check provenance_role to ensure it's YOUR writing
+            role = note.metadata.get("provenance_role", "unknown")
+            is_mechanical = note.metadata.get("type") in ["pdf_chunk", "web_clip", "chat_log", "youtube_watch"]
             
-            if not is_mechanical and note.word_count() > word_limit:
+            # Only audit active outputs that exceed the limit
+            if (role == "output" or role == "unknown") and not is_mechanical and note.word_count() > word_limit:
                 meta = note.metadata or {}
                 
                 # If it's not already flagged, flag it
@@ -202,19 +283,4 @@ class ConsolidationAgent:
                     flagged_count += 1
                     
         log.info(f"[consolidate] Flagged {flagged_count} long notes for manual human refactoring.")
-if __name__ == "__main__":
-    # Simple test execution if run directly
-    import os
-    logging.basicConfig(level=logging.INFO)
-    
-    # Mock setup assuming configs are in environment or a dict
-    from .store import Store
-    from ..extract.relations import ClaudeExtractor
-    from .graph import GraphBuilder
-    
-    db = Store("data/brain.db")
-    extractor = ClaudeExtractor(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
-    builder = GraphBuilder(db)
-    
-    agent = ConsolidationAgent(db, extractor, builder)
-    agent.run_nightly_job()
+        return flagged_count
