@@ -1,10 +1,10 @@
 # Digital Brain: A Provenance-Aware Neuro-Symbolic Memory System
 
-> "The frontier is not 'RAG plus notes.' The frontier is memory formation, memory maintenance, and memory-based reasoning."
+
 
 This repository implements a digital brain designed for continual personal knowledge consolidation. It is not just another note-taking app or a flat vector database. It is a **neuro-symbolic memory system** that ingests raw artifacts (Org-mode notes, web clippings, PDFs, chat logs), converts them into a structured graph, maintains that memory over time via an automated consolidation loop, and answers queries through adaptive retrieval and agentic reasoning.
 
-## 🧠 Core Architecture
+## Core Architecture
 
 This system moves beyond standard Retrieval-Augmented Generation (RAG) by utilizing four distinct memory layers and an active maintenance loop.
 
@@ -14,7 +14,7 @@ This system moves beyond standard Retrieval-Augmented Generation (RAG) by utiliz
 * **Query Orchestrator (The Conscious Agent):** A LangGraph-powered state machine that routes questions through local note recall, vector retrieval, or graph traversal. Includes a human-in-the-loop fallback if retrieval confidence falls below a threshold.
 * **Visualization (The Mind's Eye):** A D3.js force-directed physics graph that visually maps your knowledge, sizing nodes by centrality and coloring them by topic cluster.
 
-## 📂 Repository Structure
+## Repository Structure
 
     digital-brain/
     ├── main.py                          # The CLI control panel
@@ -32,28 +32,8 @@ This system moves beyond standard Retrieval-Augmented Generation (RAG) by utiliz
         └── visualize/                   # JSON exporters for the frontend
 
 
-## 🚀 Getting Started
 
-### 1. Prerequisites
-Ensure you have Python 3.10+ installed.
-
-### 2. Installation
-Clone the repository and install the required dependencies:
-
-    git clone https://github.com/yourusername/digital-brain.git
-    cd digital-brain
-    pip install -r requirements.txt
-
-*(Note: Ensure your `requirements.txt` includes: networkx, sentence-transformers, langgraph, pypdf2, anthropic, and python-louvain)*
-
-### 3. Environment Variables
-To use Claude for relation extraction and query synthesis, export your API key:
-
-    export ANTHROPIC_API_KEY="your-api-key-here"
-
-*(Local LLM support via Ollama is also supported via config.yaml / environment tweaks).*
-
-## 🛠️ Usage
+## Usage
 
 The system is controlled entirely through the `main.py` CLI. 
 
