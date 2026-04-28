@@ -1,8 +1,5 @@
 # Digital Brain — Provenance-Aware Neuro-Symbolic Memory System
 
-> *A personal knowledge graph that reads your writing, finds the gaps, and thinks alongside you.*
-
----
 
 ## What This Is
 
