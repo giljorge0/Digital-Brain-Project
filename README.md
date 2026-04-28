@@ -18,6 +18,8 @@ This system moves beyond standard Retrieval-Augmented Generation (RAG) by utiliz
 
 digital-brain/
 ├── main.py
+├── context.txt
+├── requirements.txt
 ├── web/
 │   └── index.html
 └── brain/
@@ -32,7 +34,7 @@ digital-brain/
     │   ├── __init__.py
     │   ├── importers.py
     │   ├── note.py
-    │   └── org_parser.py         
+    │   └── org_parser.py
     ├── memory/
     │   ├── __init__.py
     │   ├── consolidation.py
@@ -45,7 +47,6 @@ digital-brain/
     └── visualize/
         ├── __init__.py
         └── export.py
-
 
 
 ## Usage
