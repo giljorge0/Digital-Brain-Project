@@ -16,20 +16,35 @@ This system moves beyond standard Retrieval-Augmented Generation (RAG) by utiliz
 
 ## Repository Structure
 
-    digital-brain/
-    ├── main.py                          # The CLI control panel
-    ├── requirements.txt                 # Dependencies
-    ├── data/                            # Local SQLite storage (auto-generated)
-    ├── web/
-    │   ├── index.html                   # D3.js visualization frontend
-    │   └── graph_data.json              # D3 data payload (auto-generated)
-    └── brain/
-        ├── agents/                      # LangGraph orchestrators
-        ├── extract/                     # LLM relation and claim extractors
-        ├── ingest/                      # Parsers for Org-mode, PDFs, Web clips
-        ├── memory/                      # SQLite Store, NetworkX Graph, Embeddings
-        ├── query/                       # Query planning and routing logic
-        └── visualize/                   # JSON exporters for the frontend
+digital-brain/
+├── main.py
+├── web/
+│   └── index.html
+└── brain/
+    ├── __init__.py
+    ├── agents/
+    │   ├── __init__.py
+    │   └── query_agent.py
+    ├── extract/
+    │   ├── __init__.py
+    │   └── relations.py
+    ├── ingest/
+    │   ├── __init__.py
+    │   ├── importers.py
+    │   ├── note.py
+    │   └── org_parser.py         
+    ├── memory/
+    │   ├── __init__.py
+    │   ├── consolidation.py
+    │   ├── embeddings.py
+    │   ├── graph.py
+    │   └── store.py
+    ├── query/
+    │   ├── __init__.py
+    │   └── planner.py
+    └── visualize/
+        ├── __init__.py
+        └── export.py
 
 
 
