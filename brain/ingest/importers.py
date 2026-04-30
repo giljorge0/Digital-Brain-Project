@@ -24,7 +24,7 @@ import json
 import re
 import logging
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from brain.ingest.note import Note
@@ -455,6 +455,180 @@ class ImportManager:
 
             log.info(f"[import] Parsed PDF '{pdf_file.stem}' into 1 parent and {len(chunks)} chunks.")
 
+        return notes
+      
+    # ── YouTube search history ────────────────────────────────────────────────
+
+    @staticmethod
+    def parse_youtube_search_history(path: Path) -> list:
+        """
+        Parse Google Takeout YouTube search-history.json.
+        Your searches are OUTPUT (your intent), results are INPUT.
+        """
+        if not path.exists():
+            return []
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as e:
+            log.error(f"[import] YouTube search history failed: {e}")
+            return []
+
+        notes = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            title = item.get("title", "").replace("Searched for ", "")
+            ts    = item.get("time")
+            if not title:
+                continue
+            notes.append(Note(
+                id=Note.make_id(f"ytsearch_{title}_{ts}"),
+                title=f"YouTube search: {title}",
+                content=f"Searched YouTube for: {title}",
+                source_file=str(path),
+                date=_parse_unix_or_iso(ts),
+                tags=["youtube", "search"],
+                metadata={"type": "youtube_search", "query": title,
+                          "provenance_role": ROLE_OUTPUT},
+            ))
+        log.info(f"[import] YouTube search: {len(notes)} queries from {path.name}")
+        return notes
+
+    # ── Google search history ─────────────────────────────────────────────────
+
+    @staticmethod
+    def parse_google_search_history(path: Path) -> list:
+        """Alias for parse_search_history — same Google Takeout format."""
+        return ImportManager.parse_search_history(path)
+
+    # ── Goodreads CSV export ──────────────────────────────────────────────────
+
+    @staticmethod
+    def parse_goodreads_csv(path: Path) -> list:
+        """
+        Parse Goodreads library export CSV.
+        Books you've read are INPUT. Your shelf/ratings are OUTPUT signals.
+        """
+        if not path.exists():
+            return []
+        import csv
+        notes = []
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    title  = row.get("Title", "").strip()
+                    author = row.get("Author", "").strip()
+                    rating = row.get("My Rating", "0").strip()
+                    shelf  = row.get("Exclusive Shelf", "").strip()
+                    date_r = row.get("Date Read", "").strip()
+                    review = row.get("My Review", "").strip()
+                    if not title:
+                        continue
+                    content = f"Book: {title}\nAuthor: {author}\nShelf: {shelf}"
+                    if rating and rating != "0":
+                        content += f"\nRating: {rating}/5"
+                    if review:
+                        content += f"\nReview: {review}"
+                    notes.append(Note(
+                        id=Note.make_id(f"goodreads_{title}_{author}"),
+                        title=f"{title} — {author}",
+                        content=content,
+                        source_file=str(path),
+                        date=_parse_unix_or_iso(date_r),
+                        tags=["book", "goodreads", shelf] if shelf else ["book", "goodreads"],
+                        metadata={
+                            "type": "book",
+                            "author": author,
+                            "rating": rating,
+                            "shelf": shelf,
+                            # The book content is INPUT; your review/rating is OUTPUT
+                            "provenance_role": ROLE_OUTPUT if review else ROLE_INPUT,
+                        },
+                    ))
+        except Exception as e:
+            log.error(f"[import] Goodreads parse failed: {e}")
+        log.info(f"[import] Goodreads: {len(notes)} books from {path.name}")
+        return notes
+
+    # ── Kindle clippings ──────────────────────────────────────────────────────
+
+    @staticmethod
+    def parse_kindle_clippings(path: Path) -> list:
+        """
+        Parse Kindle 'My Clippings.txt'.
+        Highlights are INPUT (book text). Notes/annotations are OUTPUT (your words).
+        Groups clippings by book title.
+        """
+        if not path.exists():
+            return []
+        try:
+            raw = path.read_text(encoding="utf-8", errors="replace")
+        except Exception as e:
+            log.error(f"[import] Kindle clippings read failed: {e}")
+            return []
+
+        # Kindle separator
+        entries = raw.split("==========")
+        books: dict = {}
+
+        for entry in entries:
+            lines = [l.strip() for l in entry.strip().split("\n") if l.strip()]
+            if len(lines) < 2:
+                continue
+            book_line = lines[0]
+            # Book title is first line: "Title (Author)" or just "Title"
+            book_title = book_line.split("(")[0].strip() if "(" in book_line else book_line
+
+            # Metadata line contains type: "Your Highlight" or "Your Note"
+            meta_line = lines[1] if len(lines) > 1 else ""
+            content_lines = lines[2:] if len(lines) > 2 else []
+            content = " ".join(content_lines).strip()
+            if not content:
+                continue
+
+            is_note = "your note" in meta_line.lower()
+            role = ROLE_OUTPUT if is_note else ROLE_INPUT
+
+            if book_title not in books:
+                books[book_title] = {"highlights": [], "notes": [], "role": ROLE_INPUT}
+            if is_note:
+                books[book_title]["notes"].append(content)
+            else:
+                books[book_title]["highlights"].append(content)
+
+        notes = []
+        for book_title, data in books.items():
+            all_text = ""
+            if data["highlights"]:
+                all_text += "## Highlights\n" + "\n\n".join(
+                    f"> {h}" for h in data["highlights"][:50]
+                )
+            if data["notes"]:
+                all_text += "\n\n## Your Notes\n" + "\n\n".join(data["notes"])
+
+            if not all_text.strip():
+                continue
+
+            # If the book has your notes, mark as output; pure highlights = input
+            role = ROLE_OUTPUT if data["notes"] else ROLE_INPUT
+
+            notes.append(Note(
+                id=Note.make_id(f"kindle_{book_title}"),
+                title=f"Kindle: {book_title}",
+                content=all_text.strip(),
+                source_file=str(path),
+                tags=["kindle", "book", "highlights"],
+                metadata={
+                    "type": "kindle_clippings",
+                    "book_title": book_title,
+                    "highlight_count": len(data["highlights"]),
+                    "note_count": len(data["notes"]),
+                    "provenance_role": role,
+                },
+            ))
+
+        log.info(f"[import] Kindle: {len(notes)} books from {path.name}")
         return notes
 
 
