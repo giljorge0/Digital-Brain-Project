@@ -2,168 +2,809 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
     <title>Digital Brain Visualization</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
+        *, *::before, *::after { box-sizing: border-box; }
+
+        :root {
+            --bg:           #111;
+            --panel-bg:     rgba(20, 20, 20, 0.95);
+            --border:       #333;
+            --text:         #eee;
+            --text-muted:   #888;
+            --accent:       #4a9eff;
+            --contradiction:#ff5555;
+            --explicit:     #aaa;
+            --semantic:     #444;
+            --tag-edge:     #665599;
+            --panel-width:  320px;
+        }
+
         body {
-            margin: 0;
-            padding: 0;
-            background-color: #111; /* Dark mode */
-            color: #eee;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0; padding: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             overflow: hidden;
         }
-        #graph-container {
-            width: 100vw;
-            height: 100vh;
+
+        #graph-container { width: 100vw; height: 100vh; }
+
+        /* ── Top toolbar ── */
+        #toolbar {
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 48px;
+            background: var(--panel-bg);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            gap: 10px;
+            z-index: 100;
         }
-        /* Sidebar for node details */
+        #toolbar h1 {
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin: 0;
+            white-space: nowrap;
+            color: var(--accent);
+        }
+        #search-input {
+            flex: 1;
+            max-width: 280px;
+            background: #1e1e1e;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            padding: 5px 10px;
+            font-size: 0.82rem;
+            outline: none;
+        }
+        #search-input:focus { border-color: var(--accent); }
+
+        .toolbar-btn {
+            background: #1e1e1e;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            padding: 5px 10px;
+            font-size: 0.78rem;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: border-color 0.15s;
+        }
+        .toolbar-btn:hover  { border-color: var(--accent); }
+        .toolbar-btn.active { border-color: var(--accent); background: #1a2a3a; }
+
+        #stats-badge {
+            margin-left: auto;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+
+        /* ── Info panel (right side) ── */
         #info-panel {
             position: absolute;
-            top: 20px;
-            right: 20px;
-            width: 300px;
-            background: rgba(30, 30, 30, 0.9);
-            border: 1px solid #444;
+            top: 58px; right: 10px;
+            width: var(--panel-width);
+            max-height: calc(100vh - 70px);
+            overflow-y: auto;
+            background: var(--panel-bg);
+            border: 1px solid var(--border);
             border-radius: 8px;
-            padding: 20px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-            display: none; /* Hidden until clicked */
+            padding: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+            display: none;
+            z-index: 90;
         }
-        h2 { margin-top: 0; font-size: 1.2rem; }
-        .tag {
+        #info-panel h2 { margin-top: 0; font-size: 1rem; line-height: 1.3; }
+        .meta  { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px; }
+        .tag   {
             display: inline-block;
-            background: #333;
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 0.8rem;
+            background: #222;
+            border: 1px solid #444;
+            padding: 2px 7px;
+            border-radius: 10px;
+            font-size: 0.74rem;
             margin: 2px;
+            cursor: pointer;
         }
-        .meta { font-size: 0.85rem; color: #aaa; margin-bottom: 10px; }
+        .tag:hover { border-color: var(--accent); }
+
+        .section-title {
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-muted);
+            margin: 12px 0 6px;
+        }
+
+        /* Contradiction cards */
+        .contradiction-card {
+            background: rgba(255,85,85,0.1);
+            border: 1px solid rgba(255,85,85,0.35);
+            border-radius: 6px;
+            padding: 8px 10px;
+            margin-bottom: 8px;
+            font-size: 0.8rem;
+        }
+        .contradiction-card .c-title { font-weight: 600; color: var(--contradiction); }
+        .contradiction-card .c-explain { color: #ccc; margin-top: 4px; }
+        .contradiction-card .c-actions { margin-top: 8px; display: flex; gap: 6px; }
+        .c-btn {
+            flex: 1;
+            background: #1e1e1e;
+            border: 1px solid #444;
+            border-radius: 5px;
+            color: var(--text);
+            font-size: 0.74rem;
+            padding: 4px;
+            cursor: pointer;
+            text-align: center;
+        }
+        .c-btn:hover { border-color: var(--accent); }
+        .c-btn.resolve { border-color: #55aa55; color: #55aa55; }
+        .c-btn.resolve:hover { background: rgba(85,170,85,0.1); }
+
+        /* Connected notes list */
+        .connected-note {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 5px 0;
+            border-bottom: 1px solid #1e1e1e;
+            font-size: 0.8rem;
+            cursor: pointer;
+        }
+        .connected-note:hover { color: var(--accent); }
+        .edge-badge {
+            font-size: 0.68rem;
+            padding: 1px 5px;
+            border-radius: 4px;
+            flex-shrink: 0;
+        }
+        .edge-llm      { background: rgba(255,85,85,0.2);  color: #ff8888; }
+        .edge-explicit { background: rgba(200,200,200,0.1); color: #aaa; }
+        .edge-semantic { background: rgba(74,158,255,0.15); color: #4a9eff; }
+        .edge-tag      { background: rgba(102,85,153,0.2); color: #aa88ff; }
+
+        /* Close button */
+        #panel-close {
+            position: absolute;
+            top: 10px; right: 12px;
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+        }
+        #panel-close:hover { color: var(--text); }
+
+        /* ── Filter panel (left side, mobile: bottom sheet) ── */
+        #filter-panel {
+            position: absolute;
+            top: 58px; left: 10px;
+            width: 200px;
+            background: var(--panel-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            z-index: 90;
+            display: none;
+        }
+        .filter-title { font-size: 0.72rem; text-transform: uppercase;
+                        letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 8px; }
+        .filter-row {
+            display: flex; align-items: center; gap: 8px;
+            font-size: 0.8rem; margin-bottom: 6px; cursor: pointer;
+        }
+        .filter-swatch {
+            width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0;
+        }
+        .filter-row input[type=checkbox] { cursor: pointer; }
+
+        /* ── Legend ── */
+        #legend {
+            position: absolute;
+            bottom: 16px; left: 16px;
+            background: var(--panel-bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 0.74rem;
+            color: var(--text-muted);
+            pointer-events: none;
+        }
+        .legend-row { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; }
+        .legend-line { width: 22px; height: 2px; flex-shrink: 0; }
+
+        /* ── Contradiction count badge ── */
+        #contradiction-badge {
+            display: none;
+            position: absolute;
+            bottom: 16px; right: 16px;
+            background: rgba(255,85,85,0.15);
+            border: 1px solid rgba(255,85,85,0.4);
+            border-radius: 20px;
+            padding: 6px 14px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            z-index: 90;
+            transition: background 0.15s;
+        }
+        #contradiction-badge:hover { background: rgba(255,85,85,0.25); }
+
+        /* ── Contradiction resolution panel ── */
+        #contradiction-panel {
+            position: absolute;
+            top: 58px; left: 50%; transform: translateX(-50%);
+            width: min(560px, 96vw);
+            max-height: calc(100vh - 80px);
+            overflow-y: auto;
+            background: var(--panel-bg);
+            border: 1px solid rgba(255,85,85,0.4);
+            border-radius: 10px;
+            padding: 18px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.7);
+            display: none;
+            z-index: 200;
+        }
+        #contradiction-panel h3 {
+            margin-top: 0;
+            color: var(--contradiction);
+            font-size: 0.95rem;
+        }
+
+        /* ── Mobile overrides ── */
+        @media (max-width: 600px) {
+            :root { --panel-width: calc(100vw - 20px); }
+
+            #info-panel {
+                top: auto; bottom: 0; right: 0; left: 0;
+                width: 100%; max-height: 55vh;
+                border-radius: 12px 12px 0 0;
+                border-bottom: none;
+            }
+            #filter-panel {
+                top: auto; bottom: 0; left: 0; right: 0;
+                width: 100%;
+                border-radius: 12px 12px 0 0;
+                border-bottom: none;
+                display: none;
+            }
+            #toolbar h1 { display: none; }
+            #stats-badge { display: none; }
+            #legend { display: none; }
+            #contradiction-panel {
+                top: auto; bottom: 0; left: 0; right: 0;
+                width: 100%; transform: none;
+                border-radius: 12px 12px 0 0;
+                max-height: 70vh;
+            }
+        }
     </style>
 </head>
 <body>
 
-    <div id="graph-container"></div>
-    
-    <div id="info-panel">
-        <h2 id="node-title">Note Title</h2>
-        <div class="meta" id="node-meta">Date | Word count</div>
-        <div id="node-tags"></div>
-        <p style="font-size: 0.9rem; margin-top: 15px; color: #888;">
-            (In a full app, this would fetch the note snippet from the API)
-        </p>
+<!-- ── Toolbar ── -->
+<div id="toolbar">
+    <h1>🧠 Digital Brain</h1>
+    <input id="search-input" type="text" placeholder="Search notes…" autocomplete="off">
+    <button class="toolbar-btn" id="btn-filter">Filters</button>
+    <button class="toolbar-btn" id="btn-contradictions">⚡ Conflicts</button>
+    <button class="toolbar-btn" id="btn-reset">Reset</button>
+    <span id="stats-badge"></span>
+</div>
+
+<!-- ── Main graph ── -->
+<div id="graph-container"></div>
+
+<!-- ── Node info panel ── -->
+<div id="info-panel">
+    <button id="panel-close">✕</button>
+    <h2 id="node-title"></h2>
+    <div class="meta" id="node-meta"></div>
+    <div id="node-tags"></div>
+
+    <!-- Contradiction section (shown only if node has contradiction edges) -->
+    <div id="node-contradictions-section" style="display:none">
+        <div class="section-title">⚡ Contradictions</div>
+        <div id="node-contradictions"></div>
     </div>
 
-    <script>
-        // Use a D3 color scale for our clusters
-        const colorScale = d3.scaleOrdinal(d3.schemeCategory10);
+    <!-- Connected notes -->
+    <div class="section-title">Connected notes</div>
+    <div id="node-connections"></div>
+</div>
 
-        // Fetch the JSON generated by our Python exporter
-        d3.json("graph_data.json").then(function(data) {
-            
-            const width = window.innerWidth;
-            const height = window.innerHeight;
+<!-- ── Filter panel ── -->
+<div id="filter-panel">
+    <div class="filter-title">Show edge types</div>
+    <label class="filter-row">
+        <input type="checkbox" data-edge="explicit" checked>
+        <span class="filter-swatch" style="background:#aaa"></span> Explicit links
+    </label>
+    <label class="filter-row">
+        <input type="checkbox" data-edge="llm" checked>
+        <span class="filter-swatch" style="background:#ff5555"></span> LLM relations
+    </label>
+    <label class="filter-row">
+        <input type="checkbox" data-edge="semantic" checked>
+        <span class="filter-swatch" style="background:#4a9eff"></span> Semantic
+    </label>
+    <label class="filter-row">
+        <input type="checkbox" data-edge="tag" checked>
+        <span class="filter-swatch" style="background:#aa88ff"></span> Tag overlap
+    </label>
+    <div class="filter-title" style="margin-top:12px">Min. centrality</div>
+    <input type="range" id="centrality-filter" min="0" max="100" value="0"
+           style="width:100%;accent-color:var(--accent)">
+    <div id="centrality-label" style="font-size:0.75rem;color:var(--text-muted);text-align:right">
+        All nodes
+    </div>
+</div>
 
-            const svg = d3.select("#graph-container")
-                .append("svg")
-                .attr("width", width)
-                .attr("height", height)
-                .call(d3.zoom().on("zoom", (event) => {
-                    g.attr("transform", event.transform);
-                }));
+<!-- ── Contradiction resolution panel ── -->
+<div id="contradiction-panel">
+    <h3>⚡ Contradiction Resolution</h3>
+    <p style="font-size:0.82rem;color:var(--text-muted);margin-top:0">
+        These note pairs have been flagged as contradicting each other by the
+        consolidation agent. Review and mark each as resolved, dismissed, or
+        keep-both.
+    </p>
+    <div id="contradiction-list"></div>
+    <button class="toolbar-btn" id="close-contradictions"
+            style="width:100%;margin-top:12px">Close</button>
+</div>
 
-            const g = svg.append("g");
+<!-- ── Contradiction badge ── -->
+<div id="contradiction-badge"></div>
 
-            // Setup the physics simulation
-            const simulation = d3.forceSimulation(data.nodes)
-                .force("link", d3.forceLink(data.links).id(d => d.id).distance(50))
-                .force("charge", d3.forceManyBody().strength(-100))
-                .force("center", d3.forceCenter(width / 2, height / 2))
-                .force("collide", d3.forceCollide().radius(d => Math.sqrt(d.centrality * 1000) + 10));
+<!-- ── Legend ── -->
+<div id="legend">
+    <div class="legend-row">
+        <div class="legend-line" style="background:#aaa"></div> Explicit link
+    </div>
+    <div class="legend-row">
+        <div class="legend-line" style="background:#ff5555"></div> LLM / contradiction
+    </div>
+    <div class="legend-row">
+        <div class="legend-line" style="background:#4a9eff"></div> Semantic
+    </div>
+    <div class="legend-row">
+        <div class="legend-line" style="background:#aa88ff"></div> Tag overlap
+    </div>
+</div>
 
-            // Draw links (edges)
-            const link = g.append("g")
-                .attr("stroke-opacity", 0.6)
-                .selectAll("line")
-                .data(data.links)
-                .join("line")
-                .attr("stroke", d => {
-                    if (d.edge_type === "explicit") return "#aaa";
-                    if (d.edge_type === "llm") return "#ff5555";
-                    return "#444"; // semantic/tag
-                })
-                .attr("stroke-width", d => Math.max(0.5, d.weight * 2));
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+const state = {
+    activeFilters: { explicit: true, llm: true, semantic: true, tag: true },
+    minCentrality: 0,
+    selectedNode: null,
+    searchTerm: "",
+    contradictions: [],   // edges where relation="contradicts"
+    resolvedPairs: new Set(),
+};
 
-            // Draw nodes
-            const node = g.append("g")
-                .attr("stroke", "#fff")
-                .attr("stroke-width", 1.5)
-                .selectAll("circle")
-                .data(data.nodes)
-                .join("circle")
-                // Node size is based on its PageRank centrality
-                .attr("r", d => Math.max(4, Math.sqrt((d.centrality || 0.01) * 2000)))
-                .attr("fill", d => colorScale(d.cluster || 0))
-                .call(drag(simulation));
+const colorScale = d3.scaleOrdinal(d3.schemeCategory10);
 
-            // Node hover text
-            node.append("title")
-                .text(d => d.title);
+function edgeColor(d) {
+    if (d.edge_type === "explicit") return "#aaa";
+    if (d.edge_type === "llm") {
+        const rel = d.relation || (d.metadata && d.metadata.relation) || "";
+        return rel === "contradicts" ? "#ff5555" : "#ff8844";
+    }
+    if (d.edge_type === "semantic") return "#4a9eff";
+    if (d.edge_type === "tag")      return "#aa88ff";
+    return "#444";
+}
 
-            // Click event to show the info panel
-            node.on("click", (event, d) => {
-                document.getElementById("info-panel").style.display = "block";
-                document.getElementById("node-title").innerText = d.title;
-                document.getElementById("node-meta").innerText = `Words: ${d.word_count} | Centrality: ${d.centrality.toFixed(4)}`;
-                
-                const tagsDiv = document.getElementById("node-tags");
-                tagsDiv.innerHTML = "";
-                if (d.tags) {
-                    d.tags.forEach(tag => {
-                        const span = document.createElement("span");
-                        span.className = "tag";
-                        span.innerText = tag;
-                        tagsDiv.appendChild(span);
-                    });
-                }
-            });
+// ── Load data ──────────────────────────────────────────────────────────────
+d3.json("graph_data.json").then(function(data) {
 
-            // Update positions on every tick of the simulation
-            simulation.on("tick", () => {
-                link
-                    .attr("x1", d => d.source.x)
-                    .attr("y1", d => d.source.y)
-                    .attr("x2", d => d.target.x)
-                    .attr("y2", d => d.target.y);
+    const nodeMap = {};
+    data.nodes.forEach(n => { nodeMap[n.id] = n; });
 
-                node
-                    .attr("cx", d => d.x)
-                    .attr("cy", d => d.y);
-            });
+    // Parse metadata JSON strings if needed
+    data.links.forEach(l => {
+        if (typeof l.metadata === "string") {
+            try { l.metadata = JSON.parse(l.metadata); } catch(e) { l.metadata = {}; }
+        }
+        l.metadata = l.metadata || {};
+    });
 
-            // Drag behavior for nodes
-            function drag(simulation) {
-                function dragstarted(event) {
-                    if (!event.active) simulation.alphaTarget(0.3).restart();
-                    event.subject.fx = event.subject.x;
-                    event.subject.fy = event.subject.y;
-                }
-                function dragged(event) {
-                    event.subject.fx = event.x;
-                    event.subject.fy = event.y;
-                }
-                function dragended(event) {
-                    if (!event.active) simulation.alphaTarget(0);
-                    event.subject.fx = null;
-                    event.subject.fy = null;
-                }
-                return d3.drag()
-                    .on("start", dragstarted)
-                    .on("drag", dragged)
-                    .on("end", dragended);
-            }
+    // Collect contradictions
+    state.contradictions = data.links.filter(l =>
+        l.edge_type === "llm" &&
+        (l.metadata.relation === "contradicts" ||
+         (typeof l.metadata === "string" && l.metadata.includes("contradicts")))
+    );
+
+    // Stats badge
+    document.getElementById("stats-badge").textContent =
+        `${data.nodes.length} notes · ${data.links.length} edges`;
+
+    // Contradiction badge
+    if (state.contradictions.length > 0) {
+        const badge = document.getElementById("contradiction-badge");
+        badge.style.display = "block";
+        badge.textContent   = `⚡ ${state.contradictions.length} contradiction${state.contradictions.length > 1 ? "s" : ""}`;
+        badge.addEventListener("click", () => openContradictionPanel());
+    }
+
+    // ── SVG setup ────────────────────────────────────────────────────────
+    const width  = window.innerWidth;
+    const height = window.innerHeight;
+
+    const svg = d3.select("#graph-container")
+        .append("svg")
+        .attr("width", width)
+        .attr("height", height);
+
+    // Arrow marker for directed edges
+    svg.append("defs").append("marker")
+        .attr("id", "arrow")
+        .attr("viewBox", "0 -4 8 8")
+        .attr("refX", 14).attr("refY", 0)
+        .attr("markerWidth", 4).attr("markerHeight", 4)
+        .attr("orient", "auto")
+        .append("path")
+        .attr("d", "M0,-4L8,0L0,4")
+        .attr("fill", "#555");
+
+    const zoom = d3.zoom()
+        .scaleExtent([0.05, 8])
+        .on("zoom", e => g.attr("transform", e.transform));
+    svg.call(zoom);
+
+    const g = svg.append("g");
+
+    // ── Simulation ───────────────────────────────────────────────────────
+    const simulation = d3.forceSimulation(data.nodes)
+        .force("link",    d3.forceLink(data.links).id(d => d.id).distance(55))
+        .force("charge",  d3.forceManyBody().strength(-120))
+        .force("center",  d3.forceCenter(width / 2, height / 2))
+        .force("collide", d3.forceCollide().radius(d =>
+            Math.sqrt((d.centrality || 0.01) * 2000) + 8
+        ));
+
+    // ── Links ────────────────────────────────────────────────────────────
+    const linkG = g.append("g").attr("class", "links");
+    let link = renderLinks(linkG, data.links);
+
+    // ── Nodes ────────────────────────────────────────────────────────────
+    const nodeG = g.append("g").attr("class", "nodes");
+    let node = renderNodes(nodeG, data.nodes);
+
+    // ── Tick ─────────────────────────────────────────────────────────────
+    simulation.on("tick", () => {
+        link
+            .attr("x1", d => d.source.x).attr("y1", d => d.source.y)
+            .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+        node
+            .attr("cx", d => d.x)
+            .attr("cy", d => d.y);
+    });
+
+    // ── Render helpers ───────────────────────────────────────────────────
+    function visibleLinks(links) {
+        return links.filter(l =>
+            state.activeFilters[l.edge_type] !== false &&
+            !state.resolvedPairs.has(pairKey(l.source?.id || l.source, l.target?.id || l.target))
+        );
+    }
+
+    function visibleNodes(nodes) {
+        const maxCent = Math.max(...nodes.map(n => n.centrality || 0)) || 1;
+        return nodes.filter(n => {
+            if (state.searchTerm && !n.title.toLowerCase().includes(state.searchTerm))
+                return false;
+            const relCent = ((n.centrality || 0) / maxCent) * 100;
+            return relCent >= state.minCentrality;
         });
-    </script>
+    }
+
+    function renderLinks(container, links) {
+        container.selectAll("line").remove();
+        return container.selectAll("line")
+            .data(visibleLinks(links))
+            .join("line")
+            .attr("stroke",         d => edgeColor(d))
+            .attr("stroke-width",   d => Math.max(0.4, (d.weight || 0.5) * 2))
+            .attr("stroke-opacity", 0.55)
+            .attr("marker-end",     d => d.edge_type === "explicit" ? "url(#arrow)" : null);
+    }
+
+    function renderNodes(container, nodes) {
+        container.selectAll("circle").remove();
+        const visible = visibleNodes(nodes);
+        const circles = container.selectAll("circle")
+            .data(visible)
+            .join("circle")
+            .attr("r",            d => Math.max(4, Math.sqrt((d.centrality || 0.01) * 2000)))
+            .attr("fill",         d => {
+                // Wiki pages get a distinct colour
+                if (d.tags && d.tags.includes("wiki_page")) return "#2a4a2a";
+                return colorScale(d.cluster || 0);
+            })
+            .attr("stroke",       d => {
+                if (state.contradictions.some(c =>
+                    (c.source?.id || c.source) === d.id ||
+                    (c.target?.id || c.target) === d.id))
+                    return "#ff5555";
+                return d.tags && d.tags.includes("wiki_page") ? "#55aa55" : "#333";
+            })
+            .attr("stroke-width", d =>
+                state.contradictions.some(c =>
+                    (c.source?.id || c.source) === d.id ||
+                    (c.target?.id || c.target) === d.id)
+                    ? 2.5 : 1)
+            .call(drag(simulation));
+
+        circles.append("title").text(d => d.title);
+
+        circles.on("click", (event, d) => {
+            event.stopPropagation();
+            showNodePanel(d, data.links, nodeMap);
+        });
+
+        return circles;
+    }
+
+    function refresh() {
+        link = renderLinks(linkG, data.links);
+        node = renderNodes(nodeG, data.nodes);
+        simulation.nodes(visibleNodes(data.nodes));
+        simulation.force("link").links(visibleLinks(data.links));
+        simulation.alpha(0.3).restart();
+    }
+
+    // ── Search ───────────────────────────────────────────────────────────
+    const searchInput = document.getElementById("search-input");
+    searchInput.addEventListener("input", e => {
+        state.searchTerm = e.target.value.trim().toLowerCase();
+        refresh();
+    });
+
+    // ── Filter panel ────────────────────────────────────────────────────
+    document.getElementById("btn-filter").addEventListener("click", () => {
+        const fp = document.getElementById("filter-panel");
+        const open = fp.style.display === "block";
+        fp.style.display = open ? "none" : "block";
+        document.getElementById("btn-filter").classList.toggle("active", !open);
+    });
+
+    document.querySelectorAll("#filter-panel input[data-edge]").forEach(cb => {
+        cb.addEventListener("change", e => {
+            state.activeFilters[e.target.dataset.edge] = e.target.checked;
+            refresh();
+        });
+    });
+
+    const centralitySlider = document.getElementById("centrality-filter");
+    centralitySlider.addEventListener("input", e => {
+        state.minCentrality = +e.target.value;
+        const label = state.minCentrality === 0
+            ? "All nodes"
+            : `Top ${100 - state.minCentrality}%`;
+        document.getElementById("centrality-label").textContent = label;
+        refresh();
+    });
+
+    // ── Contradiction panel ──────────────────────────────────────────────
+    document.getElementById("btn-contradictions").addEventListener("click", openContradictionPanel);
+    document.getElementById("close-contradictions").addEventListener("click", () => {
+        document.getElementById("contradiction-panel").style.display = "none";
+    });
+
+    function openContradictionPanel() {
+        const panel = document.getElementById("contradiction-panel");
+        const list  = document.getElementById("contradiction-list");
+        list.innerHTML = "";
+
+        if (state.contradictions.length === 0) {
+            list.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem">No contradictions found in this graph.</p>';
+        } else {
+            state.contradictions.forEach(c => {
+                const srcId = c.source?.id || c.source;
+                const tgtId = c.target?.id || c.target;
+                const src   = nodeMap[srcId] || { title: srcId };
+                const tgt   = nodeMap[tgtId] || { title: tgtId };
+                const key   = pairKey(srcId, tgtId);
+                const resolved = state.resolvedPairs.has(key);
+
+                const card = document.createElement("div");
+                card.className = "contradiction-card";
+                card.style.opacity = resolved ? "0.4" : "1";
+                card.innerHTML = `
+                    <div class="c-title">⚡ Contradiction</div>
+                    <div style="font-size:0.82rem;margin-top:6px">
+                        <strong>${src.title}</strong><br>
+                        <span style="color:var(--text-muted)">vs.</span><br>
+                        <strong>${tgt.title}</strong>
+                    </div>
+                    ${c.metadata?.explanation
+                        ? `<div class="c-explain">${c.metadata.explanation}</div>`
+                        : ""}
+                    <div class="c-actions">
+                        <div class="c-btn resolve" data-key="${key}" data-action="resolve">
+                            ✓ Resolved
+                        </div>
+                        <div class="c-btn" data-key="${key}" data-action="keepboth">
+                            Keep both
+                        </div>
+                        <div class="c-btn" data-key="${key}" data-action="dismiss">
+                            Dismiss
+                        </div>
+                    </div>
+                `;
+                list.appendChild(card);
+            });
+
+            // Action handlers
+            list.querySelectorAll(".c-btn[data-action]").forEach(btn => {
+                btn.addEventListener("click", e => {
+                    const key    = e.target.dataset.key;
+                    const action = e.target.dataset.action;
+                    if (action === "resolve" || action === "dismiss") {
+                        state.resolvedPairs.add(key);
+                    }
+                    // Visual feedback
+                    const card = e.target.closest(".contradiction-card");
+                    card.style.opacity = "0.4";
+                    card.querySelector(".c-actions").innerHTML =
+                        `<span style="color:#888;font-size:0.78rem">Marked: ${action}</span>`;
+                    refresh();
+                });
+            });
+        }
+
+        panel.style.display = panel.style.display === "block" ? "none" : "block";
+    }
+
+    // ── Reset ────────────────────────────────────────────────────────────
+    document.getElementById("btn-reset").addEventListener("click", () => {
+        svg.call(zoom.transform, d3.zoomIdentity);
+        searchInput.value   = "";
+        state.searchTerm    = "";
+        state.minCentrality = 0;
+        centralitySlider.value = 0;
+        document.getElementById("centrality-label").textContent = "All nodes";
+        Object.keys(state.activeFilters).forEach(k => state.activeFilters[k] = true);
+        document.querySelectorAll("#filter-panel input[type=checkbox]").forEach(cb => cb.checked = true);
+        refresh();
+    });
+
+    // ── Click away to close panels ───────────────────────────────────────
+    svg.on("click", () => {
+        document.getElementById("info-panel").style.display = "none";
+        state.selectedNode = null;
+    });
+
+    // ── Drag ─────────────────────────────────────────────────────────────
+    function drag(sim) {
+        return d3.drag()
+            .on("start",  (e, d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
+            .on("drag",   (e, d) => { d.fx=e.x; d.fy=e.y; })
+            .on("end",    (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx=null; d.fy=null; });
+    }
+
+    // ── Responsive resize ─────────────────────────────────────────────
+    window.addEventListener("resize", () => {
+        const w = window.innerWidth, h = window.innerHeight;
+        svg.attr("width", w).attr("height", h);
+        simulation.force("center", d3.forceCenter(w / 2, h / 2)).alpha(0.1).restart();
+    });
+
+}).catch(err => {
+    document.getElementById("graph-container").innerHTML =
+        `<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#888;flex-direction:column;gap:12px">
+            <div style="font-size:2rem">🧠</div>
+            <div>Could not load graph_data.json</div>
+            <div style="font-size:0.8rem">Run: <code>python main.py visualize</code></div>
+            <div style="font-size:0.75rem;color:#555">${err}</div>
+        </div>`;
+});
+
+// ── Node info panel ─────────────────────────────────────────────────────────
+function showNodePanel(d, links, nodeMap) {
+    document.getElementById("info-panel").style.display = "block";
+    document.getElementById("node-title").textContent   = d.title;
+    document.getElementById("node-meta").textContent    =
+        [
+            d.date ? d.date.slice(0,10) : null,
+            d.word_count ? `${d.word_count} words` : null,
+            `Centrality: ${(d.centrality||0).toFixed(4)}`,
+            d.cluster != null ? `Cluster ${d.cluster}` : null,
+        ].filter(Boolean).join("  ·  ");
+
+    // Tags
+    const tagsDiv = document.getElementById("node-tags");
+    tagsDiv.innerHTML = "";
+    (d.tags || []).forEach(tag => {
+        const span = document.createElement("span");
+        span.className   = "tag";
+        span.textContent = tag;
+        span.onclick     = () => {
+            document.getElementById("search-input").value = tag;
+            document.getElementById("search-input").dispatchEvent(new Event("input"));
+        };
+        tagsDiv.appendChild(span);
+    });
+
+    // Edges involving this node
+    const myEdges = links.filter(l => {
+        const src = l.source?.id || l.source;
+        const tgt = l.target?.id || l.target;
+        return src === d.id || tgt === d.id;
+    });
+
+    // Contradictions
+    const contEdges = myEdges.filter(l =>
+        l.edge_type === "llm" && l.metadata?.relation === "contradicts"
+    );
+    const contSection = document.getElementById("node-contradictions-section");
+    const contDiv     = document.getElementById("node-contradictions");
+    if (contEdges.length > 0) {
+        contSection.style.display = "block";
+        contDiv.innerHTML = "";
+        contEdges.forEach(e => {
+            const otherId = (e.source?.id || e.source) === d.id
+                ? (e.target?.id || e.target)
+                : (e.source?.id || e.source);
+            const other = nodeMap[otherId] || { title: otherId };
+            const card  = document.createElement("div");
+            card.className = "contradiction-card";
+            card.innerHTML = `
+                <div class="c-title">⚡ vs. ${other.title}</div>
+                ${e.metadata?.explanation
+                    ? `<div class="c-explain">${e.metadata.explanation}</div>`
+                    : ""}
+            `;
+            contDiv.appendChild(card);
+        });
+    } else {
+        contSection.style.display = "none";
+    }
+
+    // Connected notes
+    const connDiv = document.getElementById("node-connections");
+    connDiv.innerHTML = "";
+    const shown = new Set();
+    myEdges.slice(0, 20).forEach(e => {
+        const otherId = (e.source?.id || e.source) === d.id
+            ? (e.target?.id || e.target)
+            : (e.source?.id || e.source);
+        if (shown.has(otherId)) return;
+        shown.add(otherId);
+        const other = nodeMap[otherId] || { title: otherId };
+        const row   = document.createElement("div");
+        row.className = "connected-note";
+        row.innerHTML = `
+            <span class="edge-badge edge-${e.edge_type}">${e.edge_type}</span>
+            <span>${other.title}</span>
+        `;
+        row.onclick = () => showNodePanel(other, links, nodeMap);
+        connDiv.appendChild(row);
+    });
+    if (myEdges.length === 0) {
+        connDiv.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem">No connections</span>';
+    }
+}
+
+document.getElementById("panel-close").addEventListener("click", () => {
+    document.getElementById("info-panel").style.display = "none";
+});
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function pairKey(a, b) { return [a, b].sort().join("|||"); }
+</script>
 </body>
 </html>
