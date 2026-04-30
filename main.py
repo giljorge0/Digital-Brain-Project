@@ -1,46 +1,33 @@
 """
 Digital Brain CLI
 -----------------
-INGESTION
-  python main.py ingest ~/notes/org-roam
-  python main.py ingest ~/Downloads/conversations.json   # ChatGPT export
-  python main.py ingest ~/Downloads/watch-history.json   # YouTube Takeout
-  python main.py ingest ~/data/                          # Entire folder (all formats)
-
-BUILD & MAINTAIN
-  python main.py build
-  python main.py build --force
+Usage:
+  python main.py ingest ~/notes
+  python main.py build [--backend chroma|qdrant|sqlite]
   python main.py consolidate
-
-QUERY
   python main.py query "What are my arguments about epistemic limits?"
-  python main.py query "..." --mode graph
+  python main.py visualize
 
-PERSONA
-  python main.py persona build     # Extract intellectual profile from corpus
-  python main.py persona show      # Print profile + topics + stances
+  python main.py gap [--types void depth ...] [--mode anonymous|local|zk]
+  python main.py recommend [--mode anonymous|local|zk]
 
-GENERATE (text in your voice)
+  python main.py persona build
+  python main.py persona show
+  python main.py persona drift
+
+  python main.py wiki update [--top-n 20] [--diff]
+  python main.py wiki export [--output wiki/]
+  python main.py wiki show [--concept "consciousness"]
+  python main.py wiki history --concept "consciousness"
+  python main.py wiki schedule [--interval 24]
+
   python main.py generate expand <note-id>
   python main.py generate respond "question"
-  python main.py generate makemore "seed topic"
+  python main.py generate makemore "seed" [--n 5]
   python main.py generate synthesize "topic" [--save]
 
-WIKI
-  python main.py wiki update
-  python main.py wiki export
-  python main.py wiki show
-  python main.py wiki show --concept "consciousness"
-
-GAPS & RECOMMENDATIONS
-  python main.py gap
-  python main.py gap --type depth
-  python main.py recommend --briefing
-  python main.py recommend --mode local
-
-OTHER
-  python main.py visualize
-  python main.py stats
+  python main.py export-wp [--mode graph|wiki|both] [--dry-run]
+  python main.py index-local [--sources arxiv wikipedia] [--limit 5000]
 """
 
 import os
@@ -52,217 +39,386 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger("brain_cli")
 
-from brain.memory.store       import Store
-from brain.memory.graph       import GraphBuilder
-from brain.memory.embeddings  import EmbeddingProvider, embed_notes
-from brain.extract.relations  import RelationExtractor
-from brain.query.planner      import QueryPlanner
+from brain.memory.store import Store
+from brain.memory.graph import GraphBuilder
+from brain.memory.embeddings import EmbeddingProvider, embed_notes
+from brain.memory.consolidation import ConsolidationAgent
+from brain.extract.relations import RelationExtractor
+from brain.query.planner import QueryPlanner
 from brain.agents.query_agent import QueryOrchestrator
-from brain.ingest.org_parser  import OrgParser
-from brain.ingest.importers   import ImportManager
-from brain.visualize.export   import GraphExporter
-from brain.analysis.gap_finder  import GapFinder
-from brain.analysis.recommender import Recommender
+from brain.agents.gap_agent import GapAgent
+from brain.ingest.org_parser import OrgParser
+from brain.ingest.importers import ImportManager
+from brain.visualize.export import GraphExporter
 
 DB_PATH = "data/brain.db"
 
 
 def get_config() -> dict:
     cfg = {
-        "llm_backend":           os.environ.get("BRAIN_LLM_BACKEND",   "claude"),
-        "anthropic_api_key":     os.environ.get("ANTHROPIC_API_KEY",   ""),
-        "ollama_base_url":       os.environ.get("BRAIN_OLLAMA_URL",    "http://localhost:11434"),
-        "ollama_model":          os.environ.get("BRAIN_OLLAMA_MODEL",  "mistral"),
-        "embedding_backend":     os.environ.get("BRAIN_EMBED_BACKEND", "local"),
-        "local_embedding_model": os.environ.get("BRAIN_EMBED_MODEL",   "all-MiniLM-L6-v2"),
-        "claude_model":          os.environ.get("BRAIN_CLAUDE_MODEL",  "claude-haiku-4-5-20251001"),
+        "llm_backend":           os.environ.get("LLM_BACKEND", "claude"),
+        "anthropic_api_key":     os.environ.get("ANTHROPIC_API_KEY", ""),
+        "embedding_backend":     os.environ.get("EMBEDDING_BACKEND", "local"),
+        "local_embedding_model": "all-MiniLM-L6-v2",
+        "ollama_base_url":       os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
+        "ollama_model":          os.environ.get("OLLAMA_MODEL", "mistral"),
+        "claude_model":          os.environ.get("CLAUDE_MODEL", "claude-haiku-4-5-20251001"),
+        # Vector backends
+        "vector_backend":        os.environ.get("VECTOR_BACKEND", "sqlite"),
+        "chroma_path":           os.environ.get("CHROMA_PATH", "data/chroma"),
+        "qdrant_path":           os.environ.get("QDRANT_PATH", "data/qdrant"),
+        "qdrant_url":            os.environ.get("QDRANT_URL"),
+        # Neo4j
+        "neo4j_uri":             os.environ.get("NEO4J_URI"),
+        "neo4j_user":            os.environ.get("NEO4J_USER", "neo4j"),
+        "neo4j_password":        os.environ.get("NEO4J_PASSWORD", "password"),
+        # WordPress
+        "wp_url":                os.environ.get("WP_URL", ""),
+        "wp_user":               os.environ.get("WP_USER", ""),
+        "wp_app_password":       os.environ.get("WP_APP_PASSWORD", ""),
     }
-    cfg_path = Path("config.yaml")
-    if cfg_path.exists():
-        try:
-            import yaml
-            with open(cfg_path) as f:
-                cfg.update(yaml.safe_load(f) or {})
-        except ImportError:
-            log.warning("PyYAML not installed — using env vars only")
-        except Exception as e:
-            log.warning(f"config.yaml error: {e}")
+
+    # Load llm_profiles.yaml if present
+    for yaml_path in [Path("configs/llm_profiles.yaml"), Path("llm_profiles.yaml")]:
+        if yaml_path.exists():
+            try:
+                import yaml
+                with open(yaml_path) as f:
+                    profiles_cfg = yaml.safe_load(f)
+                defaults = profiles_cfg.get("defaults", {})
+                profiles = {p["name"]: p for p in profiles_cfg.get("profiles", [])}
+                daily = profiles.get(defaults.get("daily", ""), {})
+                if daily.get("provider") == "claude":
+                    cfg["llm_backend"]       = "claude"
+                    cfg["claude_model"]      = daily.get("model", cfg["claude_model"])
+                    cfg["anthropic_api_key"] = daily.get("api_key", cfg["anthropic_api_key"])
+                elif daily.get("provider") == "ollama":
+                    cfg["llm_backend"]  = "ollama"
+                    cfg["ollama_model"] = daily.get("model", cfg["ollama_model"])
+                embed = profiles.get(defaults.get("embed", ""), {})
+                if embed.get("provider") == "ollama":
+                    cfg["embedding_backend"]      = "ollama"
+                    cfg["ollama_embedding_model"]  = embed.get("model", "nomic-embed-text")
+            except Exception as e:
+                log.warning(f"Could not parse llm_profiles.yaml: {e}")
+            break
+
     return cfg
 
 
-# ─── ingest ───────────────────────────────────────────────────────────────────
+def get_store(cfg: dict) -> Store:
+    """Return Store or Neo4jStore based on config."""
+    if cfg.get("neo4j_uri"):
+        try:
+            from brain.memory.neo4j_store import Neo4jStore
+            log.info(f"[store] Using Neo4j: {cfg['neo4j_uri']}")
+            return Neo4jStore(cfg["neo4j_uri"], cfg["neo4j_user"], cfg["neo4j_password"])
+        except ImportError:
+            log.warning("[store] neo4j package not installed — falling back to SQLite")
+    return Store(DB_PATH)
+
+
+def patch_vector_backend(store, cfg: dict):
+    """Optionally replace SQLite embedding storage with Chroma or Qdrant."""
+    backend_name = cfg.get("vector_backend", "sqlite")
+    if backend_name == "sqlite":
+        return
+    try:
+        from brain.memory.vector_backends import VectorBackend, patch_store
+        backend = VectorBackend.from_config(cfg)
+        if backend:
+            patch_store(store, backend)
+            log.info(f"[vector] Using {type(backend).__name__}")
+    except ImportError as e:
+        log.warning(f"[vector] Could not load {backend_name} backend: {e}")
+
+
+# ── ingest ────────────────────────────────────────────────────────────────────
 
 def cli_ingest(args):
-    store = Store(DB_PATH)
+    store = get_store(get_config())
     path  = Path(args.path)
     if not path.exists():
-        log.error(f"Path not found: {path}"); sys.exit(1)
+        log.error(f"Path does not exist: {path}")
+        return
 
+    log.info(f"Scanning {path}...")
     notes = []
 
-    if path.is_file():
-        name = path.name.lower()
-        if "conversations" in name or "chatgpt" in name:
-            notes = ImportManager.parse_chatgpt_export(path)
-        elif "claude" in name:
-            notes = ImportManager.parse_claude_export(path)
-        elif "watch-history" in name or "youtube" in name:
-            notes = ImportManager.parse_youtube_history(path)
-        elif "search-history" in name:
-            notes = ImportManager.parse_youtube_search_history(path)
-        elif "myactivity" in name or "google" in name:
-            notes = ImportManager.parse_google_search_history(path)
-        elif name.endswith(".json"):
-            notes = ImportManager.parse_llm_chats(path)
-        elif name.endswith(".org"):
-            notes = OrgParser().parse_file(path)
-        elif name.endswith(".csv") and "goodreads" in name:
-            notes = ImportManager.parse_goodreads_csv(path)
-        elif "clippings" in name and name.endswith(".txt"):
-            notes = ImportManager.parse_kindle_clippings(path)
-        elif name.endswith(".pdf"):
-            from brain.ingest.importers import _extract_pdf_text, ROLE_INPUT
-            from brain.ingest.note import Note
-            text = _extract_pdf_text(path)
-            if text:
-                notes = [Note(
-                    id=Note.make_id(str(path)),
-                    title=path.stem.replace("_", " ").title(),
-                    content=text[:50000],
-                    source_file=str(path),
-                    metadata={"type": "pdf", "provenance_role": ROLE_INPUT}
-                )]
-        else:
-            log.error(f"Unsupported: {path.suffix}"); sys.exit(1)
+    notes.extend(OrgParser().parse_directory(path))
+    notes.extend(ImportManager.parse_web_clips(path))
 
-    else:
-        log.info(f"Scanning {path}...")
-        for fn, parser in [
-            ("*.org dirs", lambda: OrgParser().parse_directory(path)),
-            ("*.md",       lambda: ImportManager.parse_web_clips(path)),
-            ("*.pdf",      lambda: ImportManager.parse_pdf_text(path)),
-        ]:
-            try:
-                n = parser()
-                if n: notes.extend(n); log.info(f"  {fn}: {len(n)}")
-            except Exception as e:
-                log.warning(f"  {fn} failed: {e}")
+    for f in path.glob("*.json"):
+        fn = f.name.lower()
+        if any(k in fn for k in ("conversation", "chat", "claude", "messages")):
+            notes.extend(ImportManager.parse_llm_chats(f))
 
-        for f in path.glob("*Clippings*.txt"):
-            n = ImportManager.parse_kindle_clippings(f)
-            if n: notes.extend(n); log.info(f"  Kindle: {len(n)} books")
+    for name, parser in [
+        ("watch-history.json",  ImportManager.parse_youtube_history),
+        ("search-history.json", ImportManager.parse_youtube_search_history),
+    ]:
+        p = path / name
+        if p.exists():
+            notes.extend(parser(p))
 
-        for f in path.glob("*.csv"):
-            if "goodreads" in f.name.lower() or "library" in f.name.lower():
-                n = ImportManager.parse_goodreads_csv(f)
-                if n: notes.extend(n); log.info(f"  Goodreads: {len(n)} books")
+    for p in path.glob("**/MyActivity.json"):
+        if "search" in str(p).lower():
+            notes.extend(ImportManager.parse_google_search_history(p))
 
-        for jf in sorted(path.glob("**/*.json")):
-            fname = jf.name.lower()
-            if "watch-history" in fname or "youtube" in fname:
-                n = ImportManager.parse_youtube_history(jf)
-            elif "search-history" in fname:
-                n = ImportManager.parse_youtube_search_history(jf)
-            elif "myactivity" in fname:
-                n = ImportManager.parse_google_search_history(jf)
-            else:
-                n = ImportManager.parse_llm_chats(jf)
-            if n: notes.extend(n); log.info(f"  {jf.name}: {len(n)}")
+    for p in path.glob("*.csv"):
+        if any(k in p.name.lower() for k in ("goodreads", "library", "books")):
+            notes.extend(ImportManager.parse_goodreads_csv(p))
+
+    for p in path.glob("*Clippings*.txt"):
+        notes.extend(ImportManager.parse_kindle_clippings(p))
+
+    notes.extend(ImportManager.parse_pdf_text(path))
 
     if notes:
         store.upsert_notes(notes)
-        n_out = sum(1 for n in notes if n.metadata.get("provenance_role") == "output")
-        log.info(f"Ingested {len(notes)} ({n_out} YOUR output, {len(notes)-n_out} external input)")
+        log.info(f"Ingested {len(notes)} items.")
     else:
-        log.warning("No notes found.")
+        log.warning("No valid files found.")
 
 
-# ─── build ────────────────────────────────────────────────────────────────────
+# ── build ─────────────────────────────────────────────────────────────────────
 
 def cli_build(args):
     cfg   = get_config()
-    store = Store(DB_PATH)
-    log.info("── 1/3 Embeddings ───────────────────────────────────────")
-    embedder = EmbeddingProvider.from_config(cfg)
-    embed_notes(store, embedder, force=getattr(args, "force", False))
-    log.info("── 2/3 Graph ─────────────────────────────────────────────")
+    if hasattr(args, "backend") and args.backend:
+        cfg["vector_backend"] = args.backend
+
+    store = get_store(cfg)
+    patch_vector_backend(store, cfg)
+
+    log.info("1. Generating embeddings...")
+    embed_notes(store, EmbeddingProvider.from_config(cfg))
+
+    log.info("2. Building knowledge graph...")
     builder = GraphBuilder(store)
-    G = builder.build(use_explicit=True, use_tags=True,
-                      use_semantic=not getattr(args, "no_semantic", False))
-    log.info("── 3/3 Clusters & centrality ─────────────────────────────")
+    G = builder.build()
     builder.compute_clusters(G)
     builder.compute_centrality(G)
-    s = store.stats()
-    log.info(f"Done: {s['notes']} notes · {s['edges']} edges · {s['clusters']} clusters")
+    log.info("Build complete.")
 
 
-# ─── consolidate ──────────────────────────────────────────────────────────────
+# ── consolidate ───────────────────────────────────────────────────────────────
 
 def cli_consolidate(args):
-    from brain.memory.consolidation import ConsolidationAgent
-    cfg   = get_config(); store = Store(DB_PATH)
-    agent = ConsolidationAgent(store, RelationExtractor.from_config(cfg), GraphBuilder(store))
-    log.info(f"Report: {agent.run_nightly_job()}")
+    cfg       = get_config()
+    store     = get_store(cfg)
+    extractor = RelationExtractor.from_config(cfg)
+    builder   = GraphBuilder(store)
+    ConsolidationAgent(store, extractor, builder).run_nightly_job()
+
+    # Also run scheduled wiki refresh if due
+    try:
+        from brain.wiki.auto_wiki import AutoWiki, WikiScheduler
+        from brain.persona.distiller import PersonaDistiller
+        persona  = PersonaDistiller(store, cfg).load_profile()
+        wiki     = AutoWiki(store, builder, persona, cfg)
+        scheduler = WikiScheduler(wiki, store)
+        scheduler.run_if_due(interval_hours=24)
+    except Exception as e:
+        log.debug(f"[wiki-scheduler] Skipped: {e}")
 
 
-# ─── query ────────────────────────────────────────────────────────────────────
+# ── query ─────────────────────────────────────────────────────────────────────
 
 def cli_query(args):
-    cfg   = get_config(); store = Store(DB_PATH)
-    agent = QueryOrchestrator(
-        QueryPlanner(store, EmbeddingProvider.from_config(cfg), cfg),
-        hitl=not getattr(args, "no_hitl", False)
-    )
-    print(f"\n{'='*60}\nQ: {args.question}\n{'='*60}\n")
-    print(agent.ask(args.question, mode=getattr(args, "mode", "auto")))
+    cfg      = get_config()
+    store    = get_store(cfg)
+    patch_vector_backend(store, cfg)
+    embedder = EmbeddingProvider.from_config(cfg)
+    planner  = QueryPlanner(store, embedder, cfg)
+    agent    = QueryOrchestrator(planner)
+
+    print(f"\n{'='*50}\nQUESTION: {args.question}\n{'='*50}\n")
+    answer = agent.ask(args.question)
+    print(f"\n{'='*50}\nFINAL ANSWER:\n{'='*50}\n{answer}")
 
 
-# ─── persona ──────────────────────────────────────────────────────────────────
+# ── visualize ────────────────────────────────────────────────────────────────
+
+def cli_visualize(args):
+    store    = get_store(get_config())
+    builder  = GraphBuilder(store)
+    GraphExporter(store, builder).export_json("web/graph_data.json")
+
+    log.info("Starting server at http://localhost:8000  (Ctrl+C to stop)")
+    os.chdir("web")
+    import http.server, socketserver
+    with socketserver.TCPServer(("", 8000), http.server.SimpleHTTPRequestHandler) as httpd:
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            log.info("Server stopped.")
+
+
+# ── gap ───────────────────────────────────────────────────────────────────────
+
+def cli_gap(args):
+    cfg       = get_config()
+    store     = get_store(cfg)
+    builder   = GraphBuilder(store)
+    extractor = RelationExtractor.from_config(cfg)
+    agent     = GapAgent(store, builder, extractor, cfg)
+    mode      = getattr(args, "mode", "anonymous")
+    types     = getattr(args, "types", None)
+    print(agent.daily_briefing(gap_types=types, mode=mode))
+
+
+# ── recommend ────────────────────────────────────────────────────────────────
+
+def cli_recommend(args):
+    cfg       = get_config()
+    store     = get_store(cfg)
+    builder   = GraphBuilder(store)
+    extractor = RelationExtractor.from_config(cfg)
+    mode      = getattr(args, "mode", "anonymous")
+    agent     = GapAgent(store, builder, extractor, cfg)
+    results   = agent.run(mode=mode, top_k=5)
+
+    if not results:
+        print("No gaps or recommendations generated.")
+        return
+    for r in results:
+        gap, recs = r["gap"], r["recommendations"]
+        print(f"\n── {gap.get('type','?').upper()}: {gap.get('label','?')} ──")
+        if gap.get("explanation"):
+            print(f"   {gap['explanation']}")
+        for rec in recs:
+            cert = " [ZK✓]" if rec.get("zk_certified") else ""
+            print(f"   → [{rec.get('source_type','')}] {rec.get('title','')}{cert}")
+
+
+# ── persona ───────────────────────────────────────────────────────────────────
 
 def cli_persona(args):
     from brain.persona.distiller import PersonaDistiller
-    cfg   = get_config(); store = Store(DB_PATH)
-    d     = PersonaDistiller(store, cfg)
+    cfg       = get_config()
+    store     = get_store(cfg)
+    distiller = PersonaDistiller(store, cfg)
 
     if args.persona_cmd == "build":
-        p = d.build_profile(); d.save_profile(p)
-        print(f"\n✓ Profile built: {p['corpus_size']['note_count']} notes, "
-              f"{p['corpus_size']['total_words']:,} words")
+        profile = distiller.build_profile()
+        print(f"\n✓ Persona v{profile.get('version',1)} built.")
+        print(f"  Notes: {profile['corpus_size']['note_count']} | "
+              f"Words: {profile['corpus_size']['total_words']:,}")
+        print(f"\n{profile.get('llm_self_description','')}")
 
     elif args.persona_cmd == "show":
-        p = d.load_profile()
-        if not p: print("No profile. Run: python main.py persona build"); return
-        print(f"\n{'='*60}\n  YOUR INTELLECTUAL PROFILE\n{'='*60}")
-        print(f"\n{p.get('llm_self_description','(none)')}")
-        print("\n── Top Topics ─────────────────────────────────────")
-        for tag, count in list(p.get("topical_fingerprint",{}).get("top_tags",{}).items())[:15]:
-            print(f"  {tag:<25} {'█'*min(count,40)} {count}")
-        print("\n── Stances ────────────────────────────────────────")
-        for topic, stance in p.get("stance_map", {}).items():
+        profile = distiller.load_profile()
+        if not profile:
+            print("No profile. Run: python main.py persona build")
+            return
+        print(f"\n{'='*60}\nPERSONA v{profile.get('version',1)} "
+              f"({profile.get('generated_at','')[:10]})\n{'='*60}")
+        print(f"\n─ SELF DESCRIPTION ─\n{profile.get('llm_self_description','')}")
+        print("\n─ TOP TOPICS ─")
+        for tag, count in list(profile.get("topical_fingerprint",{})
+                                        .get("top_tags",{}).items())[:15]:
+            print(f"  {tag:<25} {'█' * min(count, 40)} {count}")
+        print("\n─ STANCES ─")
+        for topic, stance in profile.get("stance_map", {}).items():
             print(f"  [{topic}] {stance}")
-        print("\n── Temporal Arc ───────────────────────────────────")
-        for yr, data in p.get("temporal_arc", {}).items():
+        print("\n─ TEMPORAL ARC ─")
+        for yr, data in profile.get("temporal_arc", {}).items():
             print(f"  {yr}: {data['note_count']} notes — {data['dominant_topic']}")
 
+    elif args.persona_cmd == "drift":
+        distiller.print_drift_report()
 
-# ─── generate ─────────────────────────────────────────────────────────────────
+    else:
+        print(f"Unknown persona subcommand: {args.persona_cmd}")
+
+
+# ── wiki ──────────────────────────────────────────────────────────────────────
+
+def cli_wiki(args):
+    from brain.wiki.auto_wiki import AutoWiki, WikiScheduler
+    from brain.persona.distiller import PersonaDistiller
+    cfg      = get_config()
+    store    = get_store(cfg)
+    builder  = GraphBuilder(store)
+    persona  = PersonaDistiller(store, cfg).load_profile()
+    wiki     = AutoWiki(store, builder, persona, cfg)
+
+    if args.wiki_cmd == "update":
+        diff     = getattr(args, "diff", False)
+        top_n    = getattr(args, "top_n", 20)
+        pages    = wiki.update_all(top_n=top_n, diff_only=diff)
+        mode_str = "diff-patch" if diff else "full"
+        print(f"\n✓ {mode_str} update: {len(pages)} pages refreshed: "
+              f"{', '.join(pages[:8])}{'…' if len(pages) > 8 else ''}")
+
+    elif args.wiki_cmd == "export":
+        out   = getattr(args, "output", "wiki/")
+        count = wiki.export_markdown(out)
+        print(f"\n✓ Exported {count} pages to {out}")
+
+    elif args.wiki_cmd == "show":
+        concept = getattr(args, "concept", None)
+        if concept:
+            page = wiki.get_page(concept)
+            if page:
+                print(f"\n{'='*60}\nWIKI: {concept.title()} "
+                      f"(v{page.metadata.get('version',1)})\n{'='*60}\n")
+                print(page.content)
+            else:
+                print(f"No page for '{concept}'. Run: python main.py wiki update")
+        else:
+            pages = wiki.list_pages()
+            print(f"\n{len(pages)} wiki pages:")
+            for p in pages:
+                c = p.metadata.get("wiki_concept", p.title)
+                v = p.metadata.get("version", 1)
+                s = p.metadata.get("source_note_count", 0)
+                print(f"  • {c:<30} v{v}  ({s} sources)")
+
+    elif args.wiki_cmd == "history":
+        concept = getattr(args, "concept", None)
+        if not concept:
+            print("--concept required for history. E.g.: --concept consciousness")
+            return
+        wiki.show_version_history(concept)
+
+    elif args.wiki_cmd == "schedule":
+        scheduler = WikiScheduler(wiki, store)
+        interval  = getattr(args, "interval", 24)
+        scheduler.install_cron(interval_hours=interval)
+
+    else:
+        print(f"Unknown wiki subcommand: {args.wiki_cmd}")
+
+
+# ── generate ──────────────────────────────────────────────────────────────────
 
 def cli_generate(args):
     from brain.persona.distiller import PersonaDistiller
     from brain.persona.generator import PersonaGenerator
-    cfg   = get_config(); store = Store(DB_PATH)
-    p     = PersonaDistiller(store, cfg).load_profile()
-    if not p: print("No profile. Run: python main.py persona build"); return
-    gen   = PersonaGenerator(store, EmbeddingProvider.from_config(cfg), p, cfg)
+    cfg      = get_config()
+    store    = get_store(cfg)
+    patch_vector_backend(store, cfg)
+    embedder = EmbeddingProvider.from_config(cfg)
+    profile  = PersonaDistiller(store, cfg).load_profile()
+    if not profile:
+        print("No persona profile. Run: python main.py persona build")
+        return
+    gen = PersonaGenerator(store, embedder, profile, cfg)
 
-    if   args.gen_cmd == "expand":
+    if args.gen_cmd == "expand":
+        print(f"\nExpanding: {args.note_id}\n{'─'*60}")
         print(gen.expand(args.note_id))
     elif args.gen_cmd == "respond":
+        print(f"\nQuestion: {args.question}\n{'─'*60}")
         print(gen.respond(args.question))
     elif args.gen_cmd == "makemore":
         ideas = gen.makemore(args.seed, n=getattr(args, "n", 5))
         for i, idea in enumerate(ideas, 1):
-            print(f"\n{i}. {idea.get('title','?')}\n   {idea.get('premise','?')}\n   ↳ {idea.get('why_fits','?')}")
+            print(f"\n{i}. {idea.get('title','?')}")
+            print(f"   {idea.get('premise','?')}")
+            print(f"   Why fits: {idea.get('why_fits','?')}")
     elif args.gen_cmd == "synthesize":
         result = gen.synthesize(args.topic)
         print(result)
@@ -272,190 +428,220 @@ def cli_generate(args):
             store.upsert_note(Note(
                 id=Note.make_id(f"synthesis_{args.topic}"),
                 title=f"Synthesis: {args.topic.title()}",
-                content=result, tags=["synthesis","generated"],
+                content=result,
+                tags=["synthesis", "generated"],
                 date=datetime.now(timezone.utc),
-                metadata={"type":"synthesis","provenance_role":"output"},
+                metadata={"type": "synthesis", "topic": args.topic},
             ))
+            log.info("Synthesis note saved.")
 
 
-# ─── wiki ─────────────────────────────────────────────────────────────────────
+# ── export-wp ────────────────────────────────────────────────────────────────
 
-def cli_wiki(args):
+def cli_export_wp(args):
+    from brain.visualize.wp_export import WPExporter
     from brain.wiki.auto_wiki import AutoWiki
     from brain.persona.distiller import PersonaDistiller
-    cfg  = get_config(); store = Store(DB_PATH)
-    wiki = AutoWiki(store, GraphBuilder(store),
-                    PersonaDistiller(store, cfg).load_profile(), cfg)
 
-    if args.wiki_cmd == "update":
-        pages = wiki.update_all(top_n=getattr(args, "top_n", 20))
-        print(f"✓ Updated {len(pages)} pages: {', '.join(pages[:10])}")
-    elif args.wiki_cmd == "export":
-        print(f"✓ Exported {wiki.export_markdown(getattr(args,'output','wiki/'))} pages")
-    elif args.wiki_cmd == "show":
-        concept = getattr(args, "concept", None)
-        if concept:
-            page = wiki.get_page(concept)
-            print(page.content if page else f"No page for '{concept}'. Run: wiki update")
-        else:
-            for p in wiki.list_pages():
-                print(f"  • {p.metadata.get('wiki_concept', p.title)}  (v{p.metadata.get('version',1)})")
-
-
-# ─── gap ──────────────────────────────────────────────────────────────────────
-
-def cli_gap(args):
-    cfg   = get_config(); store = Store(DB_PATH)
-    finder = GapFinder(store, EmbeddingProvider.from_config(cfg), cfg)
-    gaps   = (finder.find_gaps_of_type(args.type, n=getattr(args,"n",5))
-              if getattr(args,"type",None)
-              else finder.find_all_gaps(max_per_type=getattr(args,"n",5)))
-
-    if not gaps: print("\nNo gaps found. Ingest + build first."); return
-
-    print(f"\n{'='*65}\n  KNOWLEDGE GAPS ({len(gaps)})\n{'='*65}\n")
-    badges = {"void":"○ VOID","depth":"↓ DEPTH","width":"← WIDTH →",
-              "temporal":"⟳ STALE","contradiction":"≠ CONFLICT","orthogonal":"⊥ COUNTER"}
-    for i, g in enumerate(gaps, 1):
-        print(f"[{i}] {badges.get(g.gap_type, g.gap_type.upper())}  priority={g.priority_score:.2f}")
-        print(f"    {g.title}\n    {g.description}")
-        if g.suggested_actions: print(f"    → {g.suggested_actions[0]}")
-        print()
-
-    if getattr(args, "save", False):
-        import json as _j
-        out = Path("data/gaps.json"); out.parent.mkdir(exist_ok=True)
-        out.write_text(_j.dumps([g.to_dict() for g in gaps], indent=2, ensure_ascii=False))
-        log.info(f"Saved to {out}")
-
-
-# ─── recommend ────────────────────────────────────────────────────────────────
-
-def cli_recommend(args):
-    cfg   = get_config(); store = Store(DB_PATH)
-    gaps  = GapFinder(store, EmbeddingProvider.from_config(cfg), cfg).find_all_gaps(max_per_type=3)
-    if not gaps: print("No gaps found. Run 'gap' first."); return
-
-    rec = Recommender(cfg, mode=args.mode)
-    n   = getattr(args, "n", 8)
-
-    if getattr(args, "briefing", False):
-        b = rec.daily_briefing(gaps, n_items=n)
-        print(f"\n{'='*65}\n  DAILY BRIEFING  {b['date']}\n{'='*65}\n{b['summary']}\n")
-        print(f"{'─'*65}\nREADING LIST ({b['reading_time_estimate']})\n{'─'*65}\n")
-        icons = {"book":"📚","paper":"📄","video":"▶","article":"🔗","search_query":"🔍"}
-        for i, item in enumerate(b["items"], 1):
-            print(f"{i}. {icons.get(item['source_type'],'·')} {item['title']}")
-            if item.get("author"): print(f"   by {item['author']}")
-            if item.get("why"):    print(f"   {item['why']}")
-            if item.get("url"):    print(f"   {item['url']}")
-            print()
-        if getattr(args, "save", False):
-            import json as _j
-            Path(f"data/briefing_{b['date']}.json").write_text(
-                _j.dumps(b, indent=2, ensure_ascii=False))
-    else:
-        recs = rec.recommend(gaps, top_k=n)
-        print(f"\n{'='*65}\n  RECOMMENDATIONS (mode={args.mode})\n{'='*65}\n")
-        for i, r in enumerate(recs, 1):
-            print(f"{i}. [{r.source_type}] {r.title}")
-            if r.author: print(f"   by {r.author}")
-            if r.why:    print(f"   {r.why}")
-            if r.url:    print(f"   {r.url}")
-            print()
-
-
-# ─── visualize ────────────────────────────────────────────────────────────────
-
-def cli_visualize(args):
-    store   = Store(DB_PATH)
+    cfg     = get_config()
+    store   = get_store(cfg)
     builder = GraphBuilder(store)
-    G       = builder.build()
-    html    = GraphExporter("web").export_html(builder.to_json(G), store=store)
-    log.info(f"Exported: {html}")
-    log.info("http://localhost:8000 — Ctrl+C to stop")
-    import http.server, socketserver
-    os.chdir("web")
-    Handler = http.server.SimpleHTTPRequestHandler
-    Handler.log_message = lambda *a: None
-    with socketserver.TCPServer(("", 8000), Handler) as httpd:
-        try: httpd.serve_forever()
-        except KeyboardInterrupt: pass
+    persona = PersonaDistiller(store, cfg).load_profile()
+    wiki    = AutoWiki(store, builder, persona, cfg)
+    dry_run = getattr(args, "dry_run", False)
+    mode    = getattr(args, "wp_mode", "graph")
+
+    exporter = WPExporter(store, builder, wiki, cfg)
+
+    if mode in ("graph", "both"):
+        result = exporter.publish_graph(
+            embed_mode=getattr(args, "embed_mode", "inline"),
+            graph_url=getattr(args, "graph_url", ""),
+            dry_run=dry_run,
+        )
+        if result:
+            print(f"✓ Graph page: {result.get('link', '(dry run)')}")
+
+    if mode in ("wiki", "both"):
+        results = exporter.publish_wiki_pages(
+            category=getattr(args, "category", "Digital Brain"),
+            dry_run=dry_run,
+        )
+        print(f"✓ Wiki posts: {len(results)} published")
 
 
-# ─── stats ────────────────────────────────────────────────────────────────────
+# ── index-local ───────────────────────────────────────────────────────────────
 
-def cli_stats(args):
-    store = Store(DB_PATH); s = store.stats()
-    notes = store.get_all_notes()
-    n_out = sum(1 for n in notes if n.metadata.get("provenance_role","output") == "output")
-    print(f"\n── Digital Brain ───────────────────────────────────")
-    print(f"  Notes:          {s['notes']}")
-    print(f"  Edges:          {s['edges']}")
-    print(f"  Embeddings:     {s['notes_with_embeddings']}")
-    print(f"  Clusters:       {s['clusters']}")
-    print(f"  YOUR output:    {n_out}")
-    print(f"  External input: {len(notes) - n_out}")
-    print(f"  Tags ({len(s['tags'])}):      {', '.join(s['tags'][:20])}\n")
+def cli_index_local(args):
+    """
+    Build a local index of arXiv/Wikipedia abstracts for offline recommendation.
+    Queries arXiv API based on your top tags and saves embeddings to
+    data/local_index.json for use by Recommender in local mode.
+    """
+    import json, urllib.request, urllib.parse
+    cfg      = get_config()
+    store    = get_store(cfg)
+    embedder = EmbeddingProvider.from_config(cfg)
+    limit    = getattr(args, "limit", 2000)
+    sources  = getattr(args, "sources", ["arxiv"])
+
+    # Get top tags to query
+    notes    = store.get_all_notes()
+    from collections import Counter
+    tag_counts: Counter = Counter()
+    for n in notes:
+        for t in n.tags:
+            if t not in ("llm_chat","web_clip","pdf","wiki_page","synthesis"):
+                tag_counts[t] += 1
+    top_tags = [t for t, _ in tag_counts.most_common(20)]
+
+    items = []
+
+    if "arxiv" in sources:
+        log.info(f"[index-local] Querying arXiv for: {top_tags[:10]}")
+        for tag in top_tags[:10]:
+            query    = urllib.parse.quote(tag)
+            api_url  = (f"https://export.arxiv.org/api/query?"
+                        f"search_query=all:{query}&start=0&max_results=20")
+            try:
+                with urllib.request.urlopen(api_url, timeout=30) as resp:
+                    import re
+                    xml = resp.read().decode("utf-8")
+                    titles  = re.findall(r'<title>(.*?)</title>', xml, re.DOTALL)[1:]
+                    summaries = re.findall(r'<summary>(.*?)</summary>', xml, re.DOTALL)
+                    ids_raw = re.findall(r'<id>http://arxiv.org/abs/([^<]+)</id>', xml)
+                    for t, s, arxiv_id in zip(titles, summaries, ids_raw):
+                        items.append({
+                            "title":    t.strip(),
+                            "abstract": s.strip()[:400],
+                            "type":     "paper",
+                            "author":   "",
+                            "url":      f"https://arxiv.org/abs/{arxiv_id.strip()}",
+                            "embedding": [],
+                        })
+            except Exception as e:
+                log.warning(f"[index-local] arXiv query failed for '{tag}': {e}")
+
+    items = items[:limit]
+    log.info(f"[index-local] Embedding {len(items)} candidates...")
+
+    batch_size = 32
+    for i in range(0, len(items), batch_size):
+        batch = items[i:i+batch_size]
+        texts = [f"{it['title']} {it['abstract']}" for it in batch]
+        try:
+            vecs = embedder.embed(texts)
+            for item, vec in zip(batch, vecs):
+                item["embedding"] = vec
+        except Exception as e:
+            log.warning(f"[index-local] Embedding batch {i} failed: {e}")
+
+    index = {"generated_at": datetime.now(timezone.utc).isoformat(),
+             "item_count": len(items), "items": items}
+    Path("data").mkdir(exist_ok=True)
+    with open("data/local_index.json", "w") as f:
+        json.dump(index, f)
+    log.info(f"[index-local] Saved {len(items)} items to data/local_index.json")
 
 
-# ─── main ─────────────────────────────────────────────────────────────────────
+# ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    p = argparse.ArgumentParser(description="Digital Brain — Neuro-Symbolic Memory System")
-    s = p.add_subparsers(dest="command", required=True)
+    from datetime import datetime, timezone
 
-    pi = s.add_parser("ingest");     pi.add_argument("path")
+    parser = argparse.ArgumentParser(description="Digital Brain CLI")
+    sub    = parser.add_subparsers(dest="command", required=True)
 
-    pb = s.add_parser("build")
-    pb.add_argument("--force",       action="store_true")
-    pb.add_argument("--no-semantic", action="store_true")
+    # ingest
+    p = sub.add_parser("ingest")
+    p.add_argument("path")
 
-    s.add_parser("consolidate")
+    # build
+    p = sub.add_parser("build")
+    p.add_argument("--backend", choices=["sqlite", "chroma", "qdrant"],
+                   help="Vector backend (default: sqlite)")
 
-    pq = s.add_parser("query")
-    pq.add_argument("question")
-    pq.add_argument("--mode", choices=["auto","semantic","keyword","graph","temporal","hybrid"], default="auto")
-    pq.add_argument("--no-hitl", action="store_true")
+    # consolidate
+    sub.add_parser("consolidate")
 
-    pp = s.add_parser("persona"); pp.add_argument("persona_cmd", choices=["build","show"])
+    # query
+    p = sub.add_parser("query")
+    p.add_argument("question")
 
-    pg  = s.add_parser("generate")
-    gs  = pg.add_subparsers(dest="gen_cmd", required=True)
-    ge  = gs.add_parser("expand");     ge.add_argument("note_id")
-    gr  = gs.add_parser("respond");    gr.add_argument("question")
-    gm  = gs.add_parser("makemore");   gm.add_argument("seed"); gm.add_argument("--n", type=int, default=5)
-    gsy = gs.add_parser("synthesize"); gsy.add_argument("topic"); gsy.add_argument("--save", action="store_true")
+    # visualize
+    sub.add_parser("visualize")
 
-    pw = s.add_parser("wiki")
-    pw.add_argument("wiki_cmd", choices=["update","export","show"])
-    pw.add_argument("--top-n",  type=int, default=20, dest="top_n")
-    pw.add_argument("--output", default="wiki/")
-    pw.add_argument("--concept")
+    # gap
+    p = sub.add_parser("gap")
+    p.add_argument("--types", nargs="*",
+                   choices=["void","depth","width","temporal","contradiction","orthogonal"])
+    p.add_argument("--mode", default="anonymous", choices=["anonymous","local","zk"])
 
-    pga = s.add_parser("gap")
-    pga.add_argument("--type", choices=["void","depth","width","temporal","contradiction","orthogonal"])
-    pga.add_argument("--n",    type=int, default=5)
-    pga.add_argument("--save", action="store_true")
+    # recommend
+    p = sub.add_parser("recommend")
+    p.add_argument("--mode", default="anonymous", choices=["anonymous","local","zk"])
 
-    pr = s.add_parser("recommend")
-    pr.add_argument("--n",        type=int, default=8)
-    pr.add_argument("--mode",     choices=["anonymous","local"], default="anonymous")
-    pr.add_argument("--briefing", action="store_true")
-    pr.add_argument("--save",     action="store_true")
+    # persona
+    p = sub.add_parser("persona")
+    p.add_argument("persona_cmd", choices=["build","show","drift"])
 
-    s.add_parser("visualize")
-    s.add_parser("stats")
+    # wiki
+    p = sub.add_parser("wiki")
+    p.add_argument("wiki_cmd", choices=["update","export","show","history","schedule"])
+    p.add_argument("--top-n",    type=int, default=20, dest="top_n")
+    p.add_argument("--output",   default="wiki/")
+    p.add_argument("--concept")
+    p.add_argument("--diff",     action="store_true",
+                   help="Only regenerate stale pages (diff-patch mode)")
+    p.add_argument("--interval", type=int, default=24,
+                   help="Cron interval in hours for 'schedule' subcommand")
 
-    args = p.parse_args()
+    # generate
+    p    = sub.add_parser("generate")
+    gsub = p.add_subparsers(dest="gen_cmd", required=True)
+    gp   = gsub.add_parser("expand");    gp.add_argument("note_id")
+    gp   = gsub.add_parser("respond");   gp.add_argument("question")
+    gp   = gsub.add_parser("makemore");  gp.add_argument("seed"); gp.add_argument("--n", type=int, default=5)
+    gp   = gsub.add_parser("synthesize");gp.add_argument("topic"); gp.add_argument("--save", action="store_true")
+
+    # export-wp
+    p = sub.add_parser("export-wp")
+    p.add_argument("--mode",       default="graph",  choices=["graph","wiki","both"], dest="wp_mode")
+    p.add_argument("--embed-mode", default="inline", choices=["inline","iframe"])
+    p.add_argument("--graph-url",  default="")
+    p.add_argument("--category",   default="Digital Brain")
+    p.add_argument("--dry-run",    action="store_true")
+
+    # index-local
+    p = sub.add_parser("index-local",
+                        help="Build offline recommendation index from arXiv")
+    p.add_argument("--sources", nargs="*", default=["arxiv"],
+                   choices=["arxiv", "wikipedia"])
+    p.add_argument("--limit", type=int, default=2000)
+
+    args = parser.parse_args()
     Path("data").mkdir(exist_ok=True)
 
-    {
-        "ingest": cli_ingest, "build": cli_build, "consolidate": cli_consolidate,
-        "query": cli_query, "persona": cli_persona, "generate": cli_generate,
-        "wiki": cli_wiki, "gap": cli_gap, "recommend": cli_recommend,
-        "visualize": cli_visualize, "stats": cli_stats,
-    }[args.command](args)
+    dispatch = {
+        "ingest":      cli_ingest,
+        "build":       cli_build,
+        "consolidate": cli_consolidate,
+        "query":       cli_query,
+        "visualize":   cli_visualize,
+        "gap":         cli_gap,
+        "recommend":   cli_recommend,
+        "persona":     cli_persona,
+        "wiki":        cli_wiki,
+        "generate":    cli_generate,
+        "export-wp":   cli_export_wp,
+        "index-local": cli_index_local,
+    }
+
+    fn = dispatch.get(args.command)
+    if fn:
+        fn(args)
+    else:
+        parser.print_help()
 
 
 if __name__ == "__main__":
