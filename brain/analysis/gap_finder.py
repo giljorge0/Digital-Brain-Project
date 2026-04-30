@@ -604,6 +604,22 @@ Respond in JSON only:
         except Exception as e:
             return f"[error: {e}]"
 
+    def find_all(self, types: list = None) -> list:
+        """
+        Compatibility alias used by GapAgent.
+        Returns Gap objects (same as find_all_gaps).
+        types: list of gap type strings to filter, or None for all.
+        """
+        if types:
+            gaps = []
+            for t in types:
+                try:
+                    gaps.extend(self.find_gaps_of_type(t, n=5))
+                except Exception as e:
+                    log.warning(f"[gaps] find_all skipping type '{t}': {e}")
+            return sorted(gaps, key=lambda g: g.priority_score, reverse=True)
+        return self.find_all_gaps(max_per_type=5)
+
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
