@@ -56,41 +56,46 @@ The system ingests your raw writing (Emacs `.org` files, chat logs, Kindle clipp
 ## Repository Structure
 
 ```
-digital-brain/
-├── main.py                     # CLI entry point
-├── configs/
-│   └── llm_profiles.yaml       # ALL your LLM accounts (see below)
+Digital-Brain-Project/
+├── README.md
 ├── brain/
-│   ├── ingest/
-│   │   ├── note.py             # Note dataclass (atomic unit)
-│   │   ├── org_parser.py       # Emacs .org parser (roam + headings)
-│   │   └── importers.py        # PDF, markdown, JSON chat logs, Kindle
-│   ├── memory/
-│   │   ├── store.py            # SQLite store (notes, edges, embeddings)
-│   │   ├── graph.py            # NetworkX graph builder + PageRank/Louvain
-│   │   ├── embeddings.py       # Embedding provider (local or API)
-│   │   └── consolidation.py    # Nightly dedup / contradiction / decay loop
-│   ├── extract/
-│   │   └── relations.py        # LLM relation extractor (entity/edge mining)
-│   ├── query/
-│   │   └── planner.py          # Route: graph | vector | temporal | hybrid
 │   ├── agents/
-│   │   ├── query_agent.py      # LangGraph query orchestrator
-│   │   └── gap_agent.py        # Knowledge gap + recommendation agent
-│   ├── llm/
-│   │   └── providers.py        # Multi-provider, multi-account LLM layer
-│   └── visualize/
-│       └── export.py           # D3.js JSON export + WordPress embed helper
-├── web/
-│   └── index.html              # Interactive force-directed graph (D3.js)
-├── data/
-│   ├── raw/                    # Your source files (never modified)
-│   ├── processed/              # Parsed note JSON cache
-│   └── eval/                   # Benchmark questions + scoring
-└── scripts/
-    ├── index_all.py            # One-shot full pipeline
-    ├── consolidate.py          # Cron-friendly consolidation runner
-    └── run_eval.py             # Benchmark evaluation
+│   │   ├── gap_agent.py
+│   │   └── query_agent.py
+│   ├── analysis/
+│   │   ├── gap_finder.py
+│   │   └── recommender.py
+│   ├── extract/
+│   │   └── relations.py
+│   ├── ingest/
+│   │   ├── importers.py
+│   │   ├── note.py
+│   │   ├── org-parser.py
+│   │   └── providers.py
+│   ├── memory/
+│   │   ├── consolidation.py
+│   │   ├── embeddings.py
+│   │   ├── graph.py
+│   │   └── store.py
+│   ├── persona/
+│   │   ├── distiller.py
+│   │   └── generator.py
+│   ├── query/
+│   │   └── planner.py
+│   ├── scripts/
+│   │   ├── consolidate.py
+│   │   ├── index_all.py
+│   │   └── run_eval.py
+│   ├── visualize/
+│   │   └── export.py
+│   ├── web/
+│   │   └── index.html
+│   └── wiki/
+│       └── auto_wiki.py
+├── config.yaml
+├── llm_profiles.yaml
+├── main.py
+└── requirements.txt
 ```
 
 ---
