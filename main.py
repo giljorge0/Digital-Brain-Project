@@ -612,6 +612,17 @@ def main():
     p.add_argument("--category",   default="Digital Brain")
     p.add_argument("--dry-run",    action="store_true")
 
+    
+    # youtube
+    p = sub.add_parser("youtube",
+        help="Deep analysis of YouTube watch/search history from Google Takeout")
+    p.add_argument("path",
+        help="Path to Google Takeout folder or YouTube/history/ subfolder")
+    p.add_argument("--save", action="store_true",
+        help="Save JSON report to data/youtube_report.json")
+    p.add_argument("--integrate-persona", action="store_true", dest="integrate_persona",
+        help="Merge YouTube timeline into data/persona.json")
+
     # index-local
     p = sub.add_parser("index-local",
                         help="Build offline recommendation index from arXiv")
@@ -635,6 +646,7 @@ def main():
         "generate":    cli_generate,
         "export-wp":   cli_export_wp,
         "index-local": cli_index_local,
+        "youtube":     cli_youtube,
     }
 
     fn = dispatch.get(args.command)
@@ -646,3 +658,75 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+def cli_youtube(args):
+    """
+    Deep analysis of YouTube watch/search history from Google Takeout.
+ 
+    Usage:
+      python main.py youtube ~/Downloads/Takeout/YouTube/history/
+      python main.py youtube ~/Downloads/Takeout/ --save
+      python main.py youtube ~/Downloads/Takeout/ --integrate-persona
+    """
+    from brain.analysis.youtube_analyzer import YouTubeAnalyzer
+    from pathlib import Path as _Path
+    import json as _json
+ 
+    cfg      = get_config()
+    analyzer = YouTubeAnalyzer(cfg)
+ 
+    root = _Path(args.path).expanduser()
+ 
+    # Try common Google Takeout layouts
+    candidates_watch = [
+        root / "watch-history.json",
+        root / "YouTube" / "history" / "watch-history.json",
+        root / "YouTube and YouTube Music" / "history" / "watch-history.json",
+    ]
+    candidates_search = [
+        root / "search-history.json",
+        root / "YouTube" / "history" / "search-history.json",
+        root / "YouTube and YouTube Music" / "history" / "search-history.json",
+    ]
+    candidates_playlists = [
+        root / "playlists",
+        root / "YouTube" / "playlists",
+        root / "YouTube and YouTube Music" / "playlists",
+    ]
+ 
+    watch_path = next((p for p in candidates_watch if p.exists()), None)
+    if not watch_path:
+        log.error(
+            f"Could not find watch-history.json under {root}\n"
+            "Expected path: Takeout/YouTube/history/watch-history.json"
+        )
+        return
+ 
+    search_path   = next((p for p in candidates_search   if p.exists()), None)
+    playlist_dir  = next((p for p in candidates_playlists if p.exists()), None)
+ 
+    log.info(f"Watch history:   {watch_path}")
+    log.info(f"Search history:  {search_path or '(not found)'}")
+    log.info(f"Playlists dir:   {playlist_dir or '(not found)'}")
+ 
+    report = analyzer.analyze(
+        watch_path   = watch_path,
+        search_path  = search_path,
+        playlist_dir = playlist_dir,
+    )
+ 
+    report.print_summary()
+ 
+    if getattr(args, 'save', False):
+        out = ROOT / "data" / "youtube_report.json"
+        report.save(out)
+        log.info(f"Report saved to {out}")
+ 
+    if getattr(args, 'integrate_persona', False):
+        report.integrate_with_persona(ROOT / "data" / "persona.json")
+        log.info("Persona updated with YouTube arc.")
+ 
