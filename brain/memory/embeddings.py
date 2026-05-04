@@ -1,210 +1,293 @@
 """
-Embeddings
-----------
-Two backends, auto-selected by config:
+Embedding Provider
+------------------
+Priority order (auto-detected at runtime):
 
-  local   — sentence-transformers (runs fully offline)
-  claude  — Anthropic voyage embeddings via API (higher quality)
-  ollama  — Ollama embeddings endpoint (local, model-selectable)
+  1. Ollama local          — nomic-embed-text, mxbai-embed-large, etc.
+                             zero cost, runs on your machine
+                             needs: ollama pull nomic-embed-text
 
-Usage:
-    provider = EmbeddingProvider.from_config(cfg)
-    vectors  = provider.embed(["text one", "text two"])
+  2. sentence-transformers — all-MiniLM-L6-v2, all-mpnet-base-v2, etc.
+                             runs fully offline, no server needed
+                             needs: pip install sentence-transformers
+
+  3. OpenAI API            — text-embedding-3-small
+                             needs: OPENAI_API_KEY
+
+  4. TF-IDF fallback       — no dependencies, deterministic, fast
+                             lower quality but always works
+
+Config keys (config.yaml or env vars):
+  embedding_backend:     ollama | sentence_transformers | openai | tfidf
+  local_embedding_model: nomic-embed-text  (for ollama)
+                         all-MiniLM-L6-v2  (for sentence-transformers)
+  ollama_base_url:       http://localhost:11434
 """
 
-import logging
-import os
-import json
+from __future__ import annotations
+
 import math
-import urllib.request
-import urllib.error
+import logging
+import re
+from collections import Counter
 from typing import Optional
 
-log = logging.getLogger(__name__)
+log = logging.getLogger("brain.embeddings")
 
+EMBED_BATCH = 64
+TFIDF_DIM   = 512
 
-# ─── Base ─────────────────────────────────────────────────────────────────────
 
 class EmbeddingProvider:
-    name: str = "base"
 
-    def embed(self, texts: list) -> list:
-        """Embed a list of strings. Returns list of float lists."""
-        raise NotImplementedError
+    def __init__(self, backend: str, model: str,
+                 api_key: str = "",
+                 base_url: str = "http://localhost:11434",
+                 _st_model=None):
+        self.backend   = backend
+        self.model     = model
+        self.api_key   = api_key
+        self.base_url  = base_url
+        self._st_model = _st_model   # cached SentenceTransformer instance
 
-    def embed_one(self, text: str) -> list:
-        return self.embed([text])[0]
+    # ── Factories ─────────────────────────────────────────────────────────────
 
-    @staticmethod
-    def from_config(cfg: dict) -> "EmbeddingProvider":
-        backend = cfg.get("embedding_backend", "local").lower()
-        if backend == "local":
-            return LocalEmbeddingProvider(
-                model=cfg.get("local_embedding_model",
-                              "all-MiniLM-L6-v2")
+    @classmethod
+    def from_config(cls, cfg: dict) -> "EmbeddingProvider":
+        """
+        Build from the config dict (from get_config() in main.py).
+        Auto-detects best available backend if 'embedding_backend' is 'auto' or missing.
+        """
+        backend = cfg.get("embedding_backend", "auto").lower()
+        model   = cfg.get("local_embedding_model", "all-MiniLM-L6-v2")
+        base    = cfg.get("ollama_base_url", "http://localhost:11434")
+        api_key = cfg.get("openai_api_key", "")
+
+        if backend == "ollama":
+            return cls("ollama", cfg.get("local_embedding_model", "nomic-embed-text"),
+                       base_url=base)
+
+        if backend == "sentence_transformers":
+            st = _load_sentence_transformers(model)
+            if st:
+                return cls("sentence_transformers", model, _st_model=st)
+            log.warning("sentence-transformers failed to load — falling back")
+
+        if backend == "openai":
+            return cls("openai", "text-embedding-3-small", api_key=api_key)
+
+        if backend == "tfidf":
+            return cls("tfidf", "tfidf")
+
+        # ── Auto-detect: try in priority order ────────────────────────────────
+        if backend in ("auto", "local"):
+            log.info("[embed] Auto-detecting best embedding backend…")
+
+            # 1. Ollama
+            ollama_model = cfg.get("local_embedding_model", "nomic-embed-text")
+            if _ollama_available(base, ollama_model):
+                log.info(f"[embed] Using Ollama ({ollama_model})")
+                return cls("ollama", ollama_model, base_url=base)
+
+            # 2. sentence-transformers
+            st_model_name = cfg.get("local_embedding_model", "all-MiniLM-L6-v2")
+            if "nomic" in st_model_name:
+                st_model_name = "all-MiniLM-L6-v2"   # nomic is Ollama-only
+            st = _load_sentence_transformers(st_model_name)
+            if st:
+                log.info(f"[embed] Using sentence-transformers ({st_model_name})")
+                return cls("sentence_transformers", st_model_name, _st_model=st)
+
+            # 3. OpenAI
+            import os
+            oai_key = api_key or os.environ.get("OPENAI_API_KEY", "")
+            if oai_key:
+                log.info("[embed] Using OpenAI text-embedding-3-small")
+                return cls("openai", "text-embedding-3-small", api_key=oai_key)
+
+            # 4. TF-IDF fallback
+            log.warning(
+                "[embed] No embedding backend found. Using TF-IDF fallback.\n"
+                "        For better results install one of:\n"
+                "          pip install sentence-transformers   (offline, recommended)\n"
+                "          ollama pull nomic-embed-text        (if Ollama is running)"
             )
-        elif backend == "ollama":
-            return OllamaEmbeddingProvider(
-                model=cfg.get("ollama_embedding_model", "nomic-embed-text"),
-                base_url=cfg.get("ollama_base_url", "http://localhost:11434"),
-            )
-        elif backend in ("claude", "voyage", "anthropic"):
-            return VoyageEmbeddingProvider(
-                api_key=cfg.get("anthropic_api_key") or os.environ.get("ANTHROPIC_API_KEY", ""),
-                model=cfg.get("voyage_model", "voyage-3"),
-            )
+            return cls("tfidf", "tfidf")
+
+        return cls("tfidf", "tfidf")
+
+    @classmethod
+    def from_registry(cls, registry) -> "EmbeddingProvider":
+        """Build from LLMRegistry (llm_profiles.yaml)."""
+        try:
+            profile = registry.get_for_role("embed")
+            if profile.provider == "ollama":
+                return cls("ollama", profile.model,
+                           base_url=profile.base_url or "http://localhost:11434")
+            elif profile.provider == "openai":
+                return cls("openai", "text-embedding-3-small",
+                           api_key=profile.api_key)
+        except Exception:
+            pass
+        log.warning("No embed profile in registry — falling back to auto-detect")
+        return cls.from_config({"embedding_backend": "auto"})
+
+    # ── Embed API ─────────────────────────────────────────────────────────────
+
+    def embed(self, text: str) -> list:
+        text = text[:8000]
+        if self.backend == "ollama":
+            return self._ollama_embed(text)
+        elif self.backend == "sentence_transformers":
+            return self._st_embed(text)
+        elif self.backend == "openai":
+            return self._openai_embed(text)
         else:
-            raise ValueError(f"Unknown embedding backend: {backend}")
+            return self._tfidf_embed(text)
 
-
-# ─── Local (sentence-transformers) ───────────────────────────────────────────
-
-class LocalEmbeddingProvider(EmbeddingProvider):
-    name = "local"
-
-    def __init__(self, model: str = "all-MiniLM-L6-v2"):
-        self.model_name = model
-        self._model = None
-
-    def _load(self):
-        if self._model is None:
+    def embed_batch(self, texts: list) -> list:
+        if self.backend == "sentence_transformers" and self._st_model:
             try:
-                from sentence_transformers import SentenceTransformer
-                log.info(f"[embed] Loading local model: {self.model_name}")
-                self._model = SentenceTransformer(self.model_name)
-            except ImportError:
-                raise ImportError(
-                    "pip install sentence-transformers"
+                vecs = self._st_model.encode(
+                    [t[:8000] for t in texts],
+                    batch_size=32,
+                    show_progress_bar=False,
+                    normalize_embeddings=True,
                 )
+                return [v.tolist() for v in vecs]
+            except Exception as e:
+                log.warning(f"ST batch embed failed: {e}")
+        return [self.embed(t) for t in texts]
 
-    def embed(self, texts: list) -> list:
-        self._load()
-        vecs = self._model.encode(texts, show_progress_bar=False)
-        return [v.tolist() for v in vecs]
+    # ── Backends ──────────────────────────────────────────────────────────────
 
-
-# ─── Ollama ───────────────────────────────────────────────────────────────────
-
-class OllamaEmbeddingProvider(EmbeddingProvider):
-    name = "ollama"
-
-    def __init__(self, model: str = "nomic-embed-text",
-                 base_url: str = "http://localhost:11434"):
-        self.model = model
-        self.base_url = base_url.rstrip("/")
-
-    def embed(self, texts: list) -> list:
-        results = []
-        for text in texts:
-            payload = json.dumps({
-                "model": self.model,
-                "prompt": text
-            }).encode("utf-8")
+    def _ollama_embed(self, text: str) -> list:
+        import urllib.request, json
+        payload = json.dumps({"model": self.model, "prompt": text}).encode()
+        try:
             req = urllib.request.Request(
-                f"{self.base_url}/api/embeddings",
-                data=payload,
-                headers={"Content-Type": "application/json"},
-                method="POST",
+                f"{self.base_url}/api/embeddings", data=payload,
+                headers={"Content-Type": "application/json"}, method="POST",
             )
-            try:
-                with urllib.request.urlopen(req, timeout=30) as resp:
-                    data = json.loads(resp.read())
-                    results.append(data["embedding"])
-            except urllib.error.URLError as e:
-                raise ConnectionError(
-                    f"Ollama not reachable at {self.base_url}: {e}"
-                )
-        return results
-
-
-# ─── Voyage / Anthropic ───────────────────────────────────────────────────────
-
-class VoyageEmbeddingProvider(EmbeddingProvider):
-    name = "voyage"
-    _API_URL = "https://api.voyageai.com/v1/embeddings"
-
-    def __init__(self, api_key: str, model: str = "voyage-3"):
-        self.api_key = api_key
-        self.model = model
-
-    def embed(self, texts: list) -> list:
-        payload = json.dumps({
-            "model": self.model,
-            "input": texts,
-            "input_type": "document",
-        }).encode("utf-8")
-
-        req = urllib.request.Request(
-            self._API_URL,
-            data=payload,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}",
-            },
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                data = json.loads(resp.read())
-                return [item["embedding"] for item in data["data"]]
-        except urllib.error.HTTPError as e:
-            raise RuntimeError(f"Voyage API error {e.code}: {e.read()}")
-
-
-# ─── Batch embed + persist ────────────────────────────────────────────────────
-
-def embed_notes(store, provider: EmbeddingProvider,
-                batch_size: int = 32, force: bool = False):
-    """
-    Embed all notes that don't yet have embeddings (or all if force=True).
-    Persists vectors to store.
-    """
-    from brain.ingest.note import Note
-
-    if force:
-        notes = store.get_all_notes()
-    else:
-        notes = store.notes_without_embeddings()
-
-    if not notes:
-        log.info("[embed] All notes already embedded")
-        return
-
-    log.info(f"[embed] Embedding {len(notes)} notes with {provider.name}...")
-
-    for i in range(0, len(notes), batch_size):
-        batch = notes[i:i + batch_size]
-        texts = [f"{n.title}\n\n{n.content[:1000]}" for n in batch]
-        try:
-            vectors = provider.embed(texts)
-            for note, vec in zip(batch, vectors):
-                store.save_embedding(note.id, vec, model=provider.name)
-            log.info(f"[embed] {min(i + batch_size, len(notes))}/{len(notes)}")
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return json.loads(r.read())["embedding"]
         except Exception as e:
-            log.error(f"[embed] Batch {i} failed: {e}")
+            log.warning(f"Ollama embed failed: {e} — falling back to TF-IDF")
+            return self._tfidf_embed(text)
 
-    log.info("[embed] Done")
+    def _st_embed(self, text: str) -> list:
+        try:
+            vec = self._st_model.encode(
+                text, normalize_embeddings=True, show_progress_bar=False
+            )
+            return vec.tolist()
+        except Exception as e:
+            log.warning(f"ST embed failed: {e}")
+            return self._tfidf_embed(text)
+
+    def _openai_embed(self, text: str) -> list:
+        try:
+            import openai
+            client = openai.OpenAI(api_key=self.api_key)
+            resp = client.embeddings.create(model="text-embedding-3-small", input=text)
+            return resp.data[0].embedding
+        except Exception as e:
+            log.warning(f"OpenAI embed failed: {e} — falling back to TF-IDF")
+            return self._tfidf_embed(text)
+
+    def _tfidf_embed(self, text: str) -> list:
+        tokens = re.findall(r"\b[a-z]{3,}\b", text.lower())
+        freq = Counter(tokens)
+        if not freq:
+            return [0.0] * TFIDF_DIM
+        vec = [0.0] * TFIDF_DIM
+        total = sum(freq.values())
+        for token, count in freq.items():
+            h = _hash_token(token)
+            vec[h % TFIDF_DIM] += count / total
+        return _l2_norm(vec)
 
 
-# ─── Cosine search helper ─────────────────────────────────────────────────────
+# ─── Bulk helper ──────────────────────────────────────────────────────────────
 
-def search_by_embedding(store, query_vec: list,
-                        top_k: int = 10) -> list:
+def embed_notes(store, provider: EmbeddingProvider, force: bool = False):
     """
-    Return top-k notes by cosine similarity to query_vec.
-    Returns list of (note_id, score) tuples, sorted desc.
+    Embed all notes missing a vector (or all notes if force=True).
+    Writes vectors to store.
     """
-    all_embeddings = store.get_all_embeddings()
-    results = []
-    for note_id, vec in all_embeddings.items():
-        score = _cosine(query_vec, vec)
-        results.append((note_id, score))
-    results.sort(key=lambda x: x[1], reverse=True)
-    return results[:top_k]
+    if force:
+        missing = store.get_all_notes()
+        log.info(f"[embed] Force re-embedding all {len(missing)} notes…")
+    else:
+        missing = store.notes_without_embeddings()
+        if not missing:
+            log.info("[embed] All notes already embedded.")
+            return
+
+    log.info(f"[embed] Embedding {len(missing)} notes with {provider.backend}…")
+    done = 0
+    failed = 0
+
+    for i in range(0, len(missing), EMBED_BATCH):
+        batch = missing[i:i + EMBED_BATCH]
+        texts = [f"{n.title}\n\n{n.content}" for n in batch]
+        try:
+            vecs = provider.embed_batch(texts)
+            for note, vec in zip(batch, vecs):
+                store.save_embedding(note.id, vec, model=provider.model)
+                done += 1
+        except Exception as e:
+            # Individual fallback
+            for note, text in zip(batch, texts):
+                try:
+                    vec = provider.embed(text)
+                    store.save_embedding(note.id, vec, model=provider.model)
+                    done += 1
+                except Exception as e2:
+                    log.warning(f"[embed] Failed {note.id[:8]}: {e2}")
+                    failed += 1
+
+        if (i // EMBED_BATCH) % 5 == 0:
+            log.info(f"[embed] {done}/{len(missing)} done…")
+
+    log.info(f"[embed] Done. {done} embedded, {failed} failed.")
 
 
-def _cosine(a: list, b: list) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = math.sqrt(sum(x * x for x in a)) or 1.0
-    norm_b = math.sqrt(sum(y * y for y in b)) or 1.0
-    return dot / (norm_a * norm_b)
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+
+def _load_sentence_transformers(model_name: str):
+    """Try to load a SentenceTransformer model. Returns None on failure."""
+    try:
+        from sentence_transformers import SentenceTransformer
+        log.info(f"[embed] Loading sentence-transformers model: {model_name}")
+        return SentenceTransformer(model_name)
+    except ImportError:
+        log.debug("sentence-transformers not installed")
+        return None
+    except Exception as e:
+        log.warning(f"Could not load ST model {model_name}: {e}")
+        return None
+
+
+def _ollama_available(base_url: str, model: str) -> bool:
+    """Check if Ollama is running and has the requested model."""
+    import urllib.request, json
+    try:
+        with urllib.request.urlopen(f"{base_url}/api/tags", timeout=2) as r:
+            data = json.loads(r.read())
+            models = [m.get("name","").split(":")[0] for m in data.get("models",[])]
+            return model.split(":")[0] in models
+    except Exception:
+        return False
+
+
+def _hash_token(token: str) -> int:
+    h = 5381
+    for ch in token:
+        h = ((h << 5) + h) + ord(ch)
+    return abs(h)
+
+
+def _l2_norm(vec: list) -> list:
+    mag = math.sqrt(sum(x * x for x in vec))
+    return [x / mag for x in vec] if mag > 0 else vec
