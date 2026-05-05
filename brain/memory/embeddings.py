@@ -145,6 +145,10 @@ class EmbeddingProvider:
         else:
             return self._tfidf_embed(text)
 
+    def embed_one(self, text: str) -> list:
+        """Helper to embed a single string instead of a list."""
+        return self.embed([text])[0]
+
     def embed_batch(self, texts: list) -> list:
         if self.backend == "sentence_transformers" and self._st_model:
             try:
@@ -253,6 +257,7 @@ def embed_notes(store, provider: EmbeddingProvider, force: bool = False):
     log.info(f"[embed] Done. {done} embedded, {failed} failed.")
 
 
+
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _load_sentence_transformers(model_name: str):
@@ -291,3 +296,46 @@ def _hash_token(token: str) -> int:
 def _l2_norm(vec: list) -> list:
     mag = math.sqrt(sum(x * x for x in vec))
     return [x / mag for x in vec] if mag > 0 else vec
+
+
+import math
+
+def search_by_embedding(store, query_embedding, top_k=5):
+    """
+    Ranks notes by comparing their embeddings to a query embedding.
+    """
+    def calc_cosine(vec1, vec2):
+        dot = sum(a * b for a, b in zip(vec1, vec2))
+        mag1 = math.sqrt(sum(a * a for a in vec1))
+        mag2 = math.sqrt(sum(b * b for b in vec2))
+        if mag1 == 0 or mag2 == 0:
+            return 0.0
+        return dot / (mag1 * mag2)
+
+    # Fetch the actual dictionary of embeddings from the store
+    note_embeddings_dict = store.get_all_embeddings()
+
+    results = []
+    # (We put .items() back because it is now actually a dictionary!)
+    for note_id, emb in note_embeddings_dict.items():
+        if not emb: 
+            continue
+        sim = calc_cosine(query_embedding, emb)
+        results.append((note_id, sim))
+    
+    # Sort by highest similarity first
+    results.sort(key=lambda x: x[1], reverse=True)
+    return results[:top_k]
+
+
+import math
+
+def _cosine(vec1, vec2):
+    """Calculate cosine similarity between two vectors."""
+    dot_product = sum(a * b for a, b in zip(vec1, vec2))
+    magnitude1 = math.sqrt(sum(a * a for a in vec1))
+    magnitude2 = math.sqrt(sum(b * b for b in vec2))
+    if magnitude1 == 0 or magnitude2 == 0:
+        return 0.0
+    return dot_product / (magnitude1 * magnitude2)
+

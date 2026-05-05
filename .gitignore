@@ -1,0 +1,13 @@
+# Private Data
+data/
+wiki/
+
+# Configs & Backups
+llm_profiles.yaml
+*.bak
+.env
+
+# Python junk
+__pycache__/
+*.py[cod]
+*$py.class

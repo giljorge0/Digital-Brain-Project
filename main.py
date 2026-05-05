@@ -185,7 +185,7 @@ def cli_ingest(args):
     for p in path.glob("*.sqlite"):
         if "places" in p.name.lower():
             notes.extend(ImportManager.parse_firefox_sqlite(p))
-if notes:
+            
     if notes:
         store.upsert_notes(notes)
         log.info(f"Ingested {len(notes)} items.")
@@ -272,12 +272,12 @@ def cli_visualize(args):
 def cli_gap(args):
     cfg       = get_config()
     store     = get_store(cfg)
-    builder   = GraphBuilder(store)
-    extractor = RelationExtractor.from_config(cfg)
-    agent     = GapAgent(store, builder, extractor, cfg)
+    embedder  = EmbeddingProvider.from_config(cfg)  # Fixed here
+    agent     = GapAgent(store, embedder, cfg)      # Fixed here
     mode      = getattr(args, "mode", "anonymous")
     types     = getattr(args, "types", None)
     print(agent.daily_briefing(gap_types=types, mode=mode))
+
 
 
 # ── recommend ────────────────────────────────────────────────────────────────
@@ -285,12 +285,12 @@ def cli_gap(args):
 def cli_recommend(args):
     cfg       = get_config()
     store     = get_store(cfg)
-    builder   = GraphBuilder(store)
-    extractor = RelationExtractor.from_config(cfg)
+    embedder  = EmbeddingProvider.from_config(cfg)  # Fixed here
     mode      = getattr(args, "mode", "anonymous")
-    agent     = GapAgent(store, builder, extractor, cfg)
+    agent     = GapAgent(store, embedder, cfg)      # Fixed here
     results   = agent.run(mode=mode, top_k=5)
-
+    
+    
     if not results:
         print("No gaps or recommendations generated.")
         return

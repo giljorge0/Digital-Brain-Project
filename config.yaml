@@ -6,7 +6,7 @@
 # ── LLM Backend ────────────────────────────────────────────────────────────────
 # Options: "claude" | "ollama"
 # Env: BRAIN_LLM_BACKEND
-llm_backend: "claude"
+llm_backend: "ollama"
 
 # Anthropic API key (for claude backend)
 # Env: ANTHROPIC_API_KEY
@@ -21,7 +21,7 @@ claude_model: "claude-haiku-4-5-20251001"
 # Ollama settings (for local LLM backend)
 # Env: BRAIN_OLLAMA_URL, BRAIN_OLLAMA_MODEL
 ollama_base_url: "http://localhost:11434"
-ollama_model: "mistral"
+ollama_model: "mistral:latest"
 
 # ── Embeddings ─────────────────────────────────────────────────────────────────
 # Options: "local" | "ollama" | "claude" (voyage)
@@ -44,7 +44,7 @@ voyage_model: "voyage-3"
 # Cosine similarity threshold for creating semantic edges
 # 0.75 = only very similar notes are connected
 # 0.60 = more connections, noisier graph
-semantic_threshold: 0.75
+semantic_threshold: 0.62
 
 # ── Consolidation ──────────────────────────────────────────────────────────────
 # Max LLM calls for relation extraction per consolidation run

@@ -397,9 +397,7 @@ Respond in JSON only:
         # Only your output notes, with a date, that are old
         stale = [
             n for n in notes
-            if n.date and n.date < cutoff
-            and n.metadata.get("provenance_role", ROLE_OUTPUT) == ROLE_OUTPUT
-            and n.centrality and n.centrality > 0
+            if n.date and n.date.replace(tzinfo=None) < cutoff.replace(tzinfo=None)
         ]
 
         # Sort by centrality (most important stale ideas first)

@@ -25,7 +25,16 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from brain.memory.graph import GraphBuilder
-from brain.memory.embeddings import _cosine
+import math
+
+def _cosine(vec1, vec2):
+       """Calculate cosine similarity between two vectors."""
+       dot_product = sum(a * b for a, b in zip(vec1, vec2))
+       magnitude1 = math.sqrt(sum(a * a for a in vec1))
+       magnitude2 = math.sqrt(sum(b * b for b in vec2))
+       if magnitude1 == 0 or magnitude2 == 0:
+           return 0.0
+       return dot_product / (magnitude1 * magnitude2)
 
 log = logging.getLogger(__name__)
 
@@ -204,7 +213,13 @@ class ConsolidationAgent:
         for note in notes:
             if note.date is None:
                 continue
-            age_days = (now - note.date).days if note.date else 0
+            if note.date:
+                # Ensure both are naive for comparison
+                naive_note_date = note.date.replace(tzinfo=None)
+                naive_now = now.replace(tzinfo=None)
+                age_days = (naive_now - naive_note_date).days
+            else:
+                age_days = 0
             if age_days < DECAY_DAYS_THRESHOLD:
                 continue
 
@@ -235,7 +250,12 @@ class ConsolidationAgent:
         for note in notes:
             if not note.centrality:
                 continue
-            recency_boost = 2.0 if (note.date and note.date > recent_cutoff) else 1.0
+            if note.date:
+                naive_date = note.date.replace(tzinfo=None)
+                naive_cutoff = recent_cutoff.replace(tzinfo=None)
+                recency_boost = 2.0 if naive_date > naive_cutoff else 1.0
+            else:
+                recency_boost = 1.0
             score = note.centrality * recency_boost
             scored.append((score, note))
 

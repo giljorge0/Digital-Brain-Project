@@ -381,7 +381,7 @@ Write the wiki article only. No preamble."""
                 f"{base}/api/generate", data=payload,
                 headers={"Content-Type": "application/json"}, method="POST",
             )
-            with urllib.request.urlopen(req, timeout=120) as resp:
+            with urllib.request.urlopen(req, timeout=600) as resp:
                 return json.loads(resp.read())["response"]
         else:
             api_key = self.cfg.get("anthropic_api_key") or os.environ.get("ANTHROPIC_API_KEY", "")
