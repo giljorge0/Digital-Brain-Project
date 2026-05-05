@@ -103,6 +103,60 @@ class ImportManager:
         log.info(f"[import] ChatGPT: {len(notes)} turns from {path.name}")
         return notes
 
+
+
+    @staticmethod
+    def parse_firefox_sqlite(db_path) -> list:
+        """Extract history from Firefox/LibreWolf/Iceraven places.sqlite"""
+        import sqlite3
+        from datetime import datetime, timezone
+        from brain.ingest.note import Note
+        
+        notes = []
+        try:
+            # Connect in read-only mode to prevent locking the database
+            uri = f"file:{db_path.absolute()}?mode=ro"
+            conn = sqlite3.connect(uri, uri=True)
+            cursor = conn.cursor()
+
+            # Grab the last 5000 visited pages (adjust limit if you want more)
+            query = """
+                SELECT p.url, p.title, h.visit_date
+                FROM moz_historyvisits h
+                JOIN moz_places p ON h.place_id = p.id
+                WHERE p.title IS NOT NULL
+                ORDER BY h.visit_date DESC
+                LIMIT 5000;
+            """
+            cursor.execute(query)
+            rows = cursor.fetchall()
+
+            for url, title, visit_date in rows:
+                if not url.startswith("http"): continue
+
+                # Firefox stores dates in microseconds since 1970
+                try:
+                    dt = datetime.fromtimestamp(visit_date / 1000000.0, tz=timezone.utc)
+                except:
+                    dt = datetime.now(timezone.utc)
+
+                notes.append(Note(
+                    id=Note.make_id(url),
+                    title=f"Web: {title[:100]}",
+                    content=f"Visited URL: {url}\n\nTitle: {title}",
+                    tags=["browser_history"],
+                    date=dt,
+                    metadata={"url": url, "source": "firefox_sqlite"}
+                ))
+
+            conn.close()
+            print(f"  ✓ Extracted {len(notes)} history items from {db_path.name}")
+        except Exception as e:
+            print(f"  ! Failed to parse SQLite {db_path.name}: {e}")
+
+        return notes
+
+        
     # ── Claude / Anthropic export ─────────────────────────────────────────────
 
     @staticmethod
