@@ -30,6 +30,7 @@ Usage:
   python main.py index-local [--sources arxiv wikipedia] [--limit 5000]
 """
 
+import yaml
 import os
 import sys
 import argparse
@@ -63,22 +64,30 @@ def get_config() -> dict:
         "ollama_base_url":       os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
         "ollama_model":          os.environ.get("OLLAMA_MODEL", "mistral"),
         "claude_model":          os.environ.get("CLAUDE_MODEL", "claude-haiku-4-5-20251001"),
-        # Vector backends
         "vector_backend":        os.environ.get("VECTOR_BACKEND", "sqlite"),
         "chroma_path":           os.environ.get("CHROMA_PATH", "data/chroma"),
         "qdrant_path":           os.environ.get("QDRANT_PATH", "data/qdrant"),
         "qdrant_url":            os.environ.get("QDRANT_URL"),
-        # Neo4j
         "neo4j_uri":             os.environ.get("NEO4J_URI"),
         "neo4j_user":            os.environ.get("NEO4J_USER", "neo4j"),
         "neo4j_password":        os.environ.get("NEO4J_PASSWORD", "password"),
-        # WordPress
         "wp_url":                os.environ.get("WP_URL", ""),
         "wp_user":               os.environ.get("WP_USER", ""),
         "wp_app_password":       os.environ.get("WP_APP_PASSWORD", ""),
     }
 
-    # Load llm_profiles.yaml if present
+    # 1. NEW: Load config.yaml so the brain obeys your settings
+    config_path = Path("config.yaml")
+    if config_path.exists():
+        try:
+            import yaml
+            with open(config_path, "r") as f:
+                file_cfg = yaml.safe_load(f) or {}
+                cfg.update(file_cfg)  # Overwrite defaults with your yaml settings
+        except Exception as e:
+            log.warning(f"Could not parse config.yaml: {e}")
+
+    # 2. Load llm_profiles.yaml if present
     for yaml_path in [Path("configs/llm_profiles.yaml"), Path("llm_profiles.yaml")]:
         if yaml_path.exists():
             try:
@@ -104,7 +113,6 @@ def get_config() -> dict:
             break
 
     return cfg
-
 
 def get_store(cfg: dict) -> Store:
     """Return Store or Neo4jStore based on config."""
@@ -173,7 +181,11 @@ def cli_ingest(args):
         notes.extend(ImportManager.parse_kindle_clippings(p))
 
     notes.extend(ImportManager.parse_pdf_text(path))
-
+    # Look for SQLite databases on the Desktop (or anywhere you point ingest)
+    for p in path.glob("*.sqlite"):
+        if "places" in p.name.lower():
+            notes.extend(ImportManager.parse_firefox_sqlite(p))
+if notes:
     if notes:
         store.upsert_notes(notes)
         log.info(f"Ingested {len(notes)} items.")
@@ -544,6 +556,79 @@ def cli_index_local(args):
     log.info(f"[index-local] Saved {len(items)} items to data/local_index.json")
 
 
+
+
+def cli_youtube(args):
+    """
+    Deep analysis of YouTube watch/search history from Google Takeout.
+ 
+    Usage:
+      python main.py youtube ~/Downloads/Takeout/YouTube/history/
+      python main.py youtube ~/Downloads/Takeout/ --save
+      python main.py youtube ~/Downloads/Takeout/ --integrate-persona
+    """
+    from brain.analysis.youtube_analyzer import YouTubeAnalyzer
+    from pathlib import Path as _Path
+    import json as _json
+ 
+    cfg      = get_config()
+    analyzer = YouTubeAnalyzer(cfg)
+ 
+    root = _Path(args.path).expanduser()
+ 
+    # Try common Google Takeout layouts
+    candidates_watch = [
+        root / "watch-history.json",
+        root / "YouTube" / "history" / "watch-history.json",
+        root / "YouTube and YouTube Music" / "history" / "watch-history.json",
+    ]
+    candidates_search = [
+        root / "search-history.json",
+        root / "YouTube" / "history" / "search-history.json",
+        root / "YouTube and YouTube Music" / "history" / "search-history.json",
+    ]
+    candidates_playlists = [
+        root / "playlists",
+        root / "YouTube" / "playlists",
+        root / "YouTube and YouTube Music" / "playlists",
+    ]
+ 
+    watch_path = next((p for p in candidates_watch if p.exists()), None)
+    if not watch_path:
+        log.error(
+            f"Could not find watch-history.json under {root}\n"
+            "Expected path: Takeout/YouTube/history/watch-history.json"
+        )
+        return
+ 
+    search_path   = next((p for p in candidates_search   if p.exists()), None)
+    playlist_dir  = next((p for p in candidates_playlists if p.exists()), None)
+ 
+    log.info(f"Watch history:   {watch_path}")
+    log.info(f"Search history:  {search_path or '(not found)'}")
+    log.info(f"Playlists dir:   {playlist_dir or '(not found)'}")
+ 
+    report = analyzer.analyze(
+        watch_path   = watch_path,
+        search_path  = search_path,
+        playlist_dir = playlist_dir,
+    )
+ 
+    report.print_summary()
+ 
+    if getattr(args, 'save', False):
+        out = ROOT / "data" / "youtube_report.json"
+        report.save(out)
+        log.info(f"Report saved to {out}")
+ 
+    if getattr(args, 'integrate_persona', False):
+        report.integrate_with_persona(ROOT / "data" / "persona.json")
+        log.info("Persona updated with YouTube arc.")
+ 
+
+
+
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -656,6 +741,11 @@ def main():
         parser.print_help()
 
 
+
+
+
+
+
 if __name__ == "__main__":
     main()
 
@@ -663,70 +753,3 @@ if __name__ == "__main__":
 
 
 
-def cli_youtube(args):
-    """
-    Deep analysis of YouTube watch/search history from Google Takeout.
- 
-    Usage:
-      python main.py youtube ~/Downloads/Takeout/YouTube/history/
-      python main.py youtube ~/Downloads/Takeout/ --save
-      python main.py youtube ~/Downloads/Takeout/ --integrate-persona
-    """
-    from brain.analysis.youtube_analyzer import YouTubeAnalyzer
-    from pathlib import Path as _Path
-    import json as _json
- 
-    cfg      = get_config()
-    analyzer = YouTubeAnalyzer(cfg)
- 
-    root = _Path(args.path).expanduser()
- 
-    # Try common Google Takeout layouts
-    candidates_watch = [
-        root / "watch-history.json",
-        root / "YouTube" / "history" / "watch-history.json",
-        root / "YouTube and YouTube Music" / "history" / "watch-history.json",
-    ]
-    candidates_search = [
-        root / "search-history.json",
-        root / "YouTube" / "history" / "search-history.json",
-        root / "YouTube and YouTube Music" / "history" / "search-history.json",
-    ]
-    candidates_playlists = [
-        root / "playlists",
-        root / "YouTube" / "playlists",
-        root / "YouTube and YouTube Music" / "playlists",
-    ]
- 
-    watch_path = next((p for p in candidates_watch if p.exists()), None)
-    if not watch_path:
-        log.error(
-            f"Could not find watch-history.json under {root}\n"
-            "Expected path: Takeout/YouTube/history/watch-history.json"
-        )
-        return
- 
-    search_path   = next((p for p in candidates_search   if p.exists()), None)
-    playlist_dir  = next((p for p in candidates_playlists if p.exists()), None)
- 
-    log.info(f"Watch history:   {watch_path}")
-    log.info(f"Search history:  {search_path or '(not found)'}")
-    log.info(f"Playlists dir:   {playlist_dir or '(not found)'}")
- 
-    report = analyzer.analyze(
-        watch_path   = watch_path,
-        search_path  = search_path,
-        playlist_dir = playlist_dir,
-    )
- 
-    report.print_summary()
- 
-    if getattr(args, 'save', False):
-        out = ROOT / "data" / "youtube_report.json"
-        report.save(out)
-        log.info(f"Report saved to {out}")
- 
-    if getattr(args, 'integrate_persona', False):
-        report.integrate_with_persona(ROOT / "data" / "persona.json")
-        log.info("Persona updated with YouTube arc.")
- 
