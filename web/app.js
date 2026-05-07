@@ -13,7 +13,7 @@ const State = {
   activeView: 'about',
   gardenCategory: 'all',
   gardenQuery: '',
-  graphFrozen: false,
+  graphFrozen: true,
   graphMineOnly: false,
   graphSim: null,
   graphZoom: null,
@@ -458,12 +458,27 @@ function buildGraph() {
 
   const g = svg.append('g');
 
-  // Simulation
+  // 1. Arrange nodes in an instant "Cosmic Spiral" (Phyllotaxis)
+  const cx = width() / 2;
+  const cy = height() / 2;
+  nodes.forEach((n, i) => {
+    const radius = Math.sqrt(i) * 45; // Spread distance
+    const angle = i * Math.PI * 2.39996; // Golden ratio angle
+    n.x = cx + radius * Math.cos(angle);
+    n.y = cy + radius * Math.sin(angle);
+    n.fx = n.x; // Lock x position
+    n.fy = n.y; // Lock y position
+  });
+
+  // 2. Setup Simulation (Paused by default)
   const sim = d3.forceSimulation(nodes)
     .force('link', d3.forceLink(links).id(d => d.id).distance(80).strength(0.5))
     .force('charge', d3.forceManyBody().strength(-200))
-    .force('center', d3.forceCenter(width() / 2, height() / 2))
+    .force('center', d3.forceCenter(cx, cy))
     .force('collision', d3.forceCollide(22));
+
+  sim.stop(); // Stop physics engine immediately to save CPU
+  sim.tick(); // Force one frame to render the static spiral
   State.graphSim = sim;
 
   // Links
@@ -547,20 +562,28 @@ function buildGraph() {
   // Fit
   $('#btn-zoom-fit')?.addEventListener('click', () => fitGraph(svg, g, zoom));
 
-  // Freeze
-  $('#btn-freeze')?.addEventListener('click', function() {
-    State.graphFrozen = !State.graphFrozen;
-    this.classList.toggle('active', State.graphFrozen);
-    if (State.graphFrozen) {
-      sim.stop();
-      nodes.forEach(n => { n.fx = n.x; n.fy = n.y; });
-    } else {
-      nodes.forEach(n => { n.fx = null; n.fy = null; });
-      sim.alphaTarget(0.1).restart();
-      setTimeout(() => sim.alphaTarget(0), 1000);
-    }
-  });
+  // Freeze / Play Physics Toggle
+  const btnFreeze = $('#btn-freeze');
+  if (btnFreeze) {
+    btnFreeze.classList.add('active');
+    btnFreeze.innerHTML = '▶ Play Physics';
 
+    btnFreeze.addEventListener('click', function() {
+      State.graphFrozen = !State.graphFrozen;
+      this.classList.toggle('active', State.graphFrozen);
+
+      if (State.graphFrozen) {
+        this.innerHTML = '▶ Play Physics';
+        sim.stop();
+        nodes.forEach(n => { n.fx = n.x; n.fy = n.y; }); // Freeze in current spot
+      } else {
+        this.innerHTML = '⏸ Freeze Graph';
+        nodes.forEach(n => { n.fx = null; n.fy = null; }); // Unlock nodes
+        sim.alpha(1).restart(); // Ignite the physics engine
+      }
+    });
+  }
+  
   // Mine only
   $('#btn-mine')?.addEventListener('click', function() {
     State.graphMineOnly = !State.graphMineOnly;
