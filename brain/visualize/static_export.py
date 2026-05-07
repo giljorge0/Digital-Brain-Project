@@ -48,7 +48,7 @@ class StaticExporter:
     def _export_notes(self):
         all_notes = self.store.get_all_notes()
         # Filter for your output only, excluding administrative wiki pages
-        output_notes = [n for n in all_notes if n.metadata.get("provenance_role") == ROLE_OUTPUT and "wiki_page" not in n.tags]
+        output_notes = [n for n in all_notes if "wiki_page" not in n.tags]
         output_notes.sort(key=lambda n: n.centrality or 0, reverse=True)
 
         import markdown
@@ -81,7 +81,7 @@ class StaticExporter:
 
         sorted_cats = dict(sorted(categories.items(), key=lambda kv: len(kv[1]), reverse=True))
         (self.out_dir / "notes.json").write_text(json.dumps({"categories": sorted_cats, "total": len(output_notes)}, ensure_ascii=False), encoding="utf-8")
-        
+
     def _export_persona(self):
         persona_path = Path("data/persona.json")
         if persona_path.exists():
