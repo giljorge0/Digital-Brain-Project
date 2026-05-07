@@ -106,33 +106,83 @@ class ImportManager:
 
 
     @staticmethod
+    @staticmethod
+    
+
+    @staticmethod
     def parse_firefox_sqlite(db_path) -> list:
-        """Extract history from Firefox/LibreWolf/Iceraven places.sqlite"""
+        """Extract and filter history from Firefox/LibreWolf/Iceraven places.sqlite"""
         import sqlite3
+        import urllib.parse
         from datetime import datetime, timezone
         from brain.ingest.note import Note
         
         notes = []
+        
+        # --- THE VALUE FILTERS ---
+        # 1. Domains that are pure noise (add your own as needed)
+        NOISE_DOMAINS = {
+            # Search Engines
+            "google.com", "bing.com", "duckduckgo.com", "yahoo.com",
+            # Social Media & Comms
+            "facebook.com", "twitter.com", "x.com", "instagram.com", "tiktok.com",
+            "whatsapp.com", "messenger.com", "reddit.com", "linkedin.com",
+            # Media, Video & Entertainment (Ingested via Takeout instead)
+            "youtube.com", "youtu.be", "netflix.com", "hulu.com", "spotify.com", "twitch.tv",
+            # Cloud Apps, Docs & Mail
+            "mail.google.com", "outlook.live.com", "drive.google.com", "docs.google.com", 
+            "sheets.google.com", "notion.so", "zoom.us", "slack.com",
+            # LLMs (Ingested via dedicated JSON exports instead)
+            "chatgpt.com", "chat.openai.com", "claude.ai", "perplexity.ai", 
+            "poe.com", "gemini.google.com", "huggingface.co",
+            # Local / System
+            "localhost", "127.0.0.1"
+        }
+        
+        # 2. URL paths that indicate administrative/login actions
+        NOISE_PATHS = ["/login", "/signin", "/auth", "/checkout", "/cart", "?search=", "/messages"]
+
         try:
             # Connect in read-only mode to prevent locking the database
             uri = f"file:{db_path.absolute()}?mode=ro"
             conn = sqlite3.connect(uri, uri=True)
             cursor = conn.cursor()
 
-            # Grab the last 5000 visited pages (adjust limit if you want more)
+            # Read EVERYTHING. No LIMIT.
             query = """
                 SELECT p.url, p.title, h.visit_date
                 FROM moz_historyvisits h
                 JOIN moz_places p ON h.place_id = p.id
                 WHERE p.title IS NOT NULL
-                ORDER BY h.visit_date DESC
-                LIMIT 5000;
+                ORDER BY h.visit_date DESC;
             """
             cursor.execute(query)
             rows = cursor.fetchall()
+            
+            raw_count = len(rows)
 
             for url, title, visit_date in rows:
                 if not url.startswith("http"): continue
+
+                # --- APPLY THE VALUE FILTER ---
+                try:
+                    parsed_url = urllib.parse.urlparse(url)
+                    domain = parsed_url.netloc.lower()
+                    if domain.startswith("www."):
+                        domain = domain[4:]
+                        
+                    # Catch exact matches OR subdomains (e.g., 'web.whatsapp.com')
+                    is_noise = any(domain == nd or domain.endswith("." + nd) for nd in NOISE_DOMAINS)
+                    if is_noise:
+                        continue
+                        
+                    if any(noise in parsed_url.path.lower() for noise in NOISE_PATHS):
+                        continue
+                        
+                    if len(title.strip()) < 4:
+                        continue
+                except Exception:
+                    pass # If URL parsing fails, skip the filter and process it
 
                 # Firefox stores dates in microseconds since 1970
                 try:
@@ -146,17 +196,21 @@ class ImportManager:
                     content=f"Visited URL: {url}\n\nTitle: {title}",
                     tags=["browser_history"],
                     date=dt,
-                    metadata={"url": url, "source": "firefox_sqlite"}
+                    metadata={
+                        "type": "browser_history", 
+                        "url": url, 
+                        "source": "firefox_sqlite",
+                        "provenance_role": ROLE_INPUT 
+                    }
                 ))
 
             conn.close()
-            print(f"  ✓ Extracted {len(notes)} history items from {db_path.name}")
+            log.info(f"  ✓ Extracted {len(notes)} high-value items from {raw_count} total visits in {db_path.name}")
         except Exception as e:
-            print(f"  ! Failed to parse SQLite {db_path.name}: {e}")
+            log.error(f"  ! Failed to parse SQLite {db_path.name}: {e}")
 
         return notes
 
-        
     # ── Claude / Anthropic export ─────────────────────────────────────────────
 
     @staticmethod
@@ -735,10 +789,14 @@ def _extract_claude_content(msg: dict) -> str:
             if isinstance(block, str):
                 parts.append(block)
             elif isinstance(block, dict):
-                parts.append(block.get("text", block.get("content", "")))
-        return " ".join(parts)
+                val = block.get("text", block.get("content", ""))
+                if val:
+                    parts.append(val)
+        
+        # ULTIMATE FAILSAFE: Force absolutely everything to be a string before joining
+        return " ".join(str(p) for p in parts if p)
+        
     return str(content)
-
 
 def _parse_frontmatter(text: str) -> tuple:
     """Split YAML frontmatter from markdown body."""

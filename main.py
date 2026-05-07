@@ -2,32 +2,28 @@
 Digital Brain CLI
 -----------------
 Usage:
-  python main.py ingest ~/notes
-  python main.py build [--backend chroma|qdrant|sqlite]
-  python main.py consolidate
-  python main.py query "What are my arguments about epistemic limits?"
-  python main.py visualize
+  python main.py --brain core ingest ~/notes
+  python main.py --brain core build
+  python main.py --brain core consolidate
+  python main.py --brain core query "What are my arguments about epistemic limits?"
+  python main.py --brain core visualize
 
-  python main.py gap [--types void depth ...] [--mode anonymous|local|zk]
-  python main.py recommend [--mode anonymous|local|zk]
+  python main.py --brain core gap [--types void depth ...] [--mode anonymous|local|zk]
+  python main.py --brain core recommend [--mode anonymous|local|zk]
 
-  python main.py persona build
-  python main.py persona show
-  python main.py persona drift
+  python main.py --brain core persona build
+  python main.py --brain core persona show
+  python main.py --brain core persona drift
 
-  python main.py wiki update [--top-n 20] [--diff]
-  python main.py wiki export [--output wiki/]
-  python main.py wiki show [--concept "consciousness"]
-  python main.py wiki history --concept "consciousness"
-  python main.py wiki schedule [--interval 24]
+  python main.py --brain core wiki update [--top-n 20] [--diff]
+  python main.py --brain core wiki export [--output wiki/]
+  python main.py --brain core wiki show [--concept "consciousness"]
 
-  python main.py generate expand <note-id>
-  python main.py generate respond "question"
-  python main.py generate makemore "seed" [--n 5]
-  python main.py generate synthesize "topic" [--save]
-
-  python main.py export-wp [--mode graph|wiki|both] [--dry-run]
-  python main.py index-local [--sources arxiv wikipedia] [--limit 5000]
+  python main.py --brain core generate expand <note-id>
+  python main.py --brain core export-wp [--mode graph|wiki|both]
+  python main.py --brain core index-local [--sources arxiv wikipedia]
+  
+  python main.py --brain core export-static [--out public_html]
 """
 
 import yaml
@@ -181,7 +177,6 @@ def cli_ingest(args):
         notes.extend(ImportManager.parse_kindle_clippings(p))
 
     notes.extend(ImportManager.parse_pdf_text(path))
-    # Look for SQLite databases on the Desktop (or anywhere you point ingest)
     for p in path.glob("*.sqlite"):
         if "places" in p.name.lower():
             notes.extend(ImportManager.parse_firefox_sqlite(p))
@@ -208,7 +203,7 @@ def cli_build(args):
 
     log.info("2. Building knowledge graph...")
     builder = GraphBuilder(store)
-    G = builder.build()
+    G = builder.build(use_explicit=True, use_tags=False, use_semantic=False)
     builder.compute_clusters(G)
     builder.compute_centrality(G)
     log.info("Build complete.")
@@ -223,7 +218,6 @@ def cli_consolidate(args):
     builder   = GraphBuilder(store)
     ConsolidationAgent(store, extractor, builder).run_nightly_job()
 
-    # Also run scheduled wiki refresh if due
     try:
         from brain.wiki.auto_wiki import AutoWiki, WikiScheduler
         from brain.persona.distiller import PersonaDistiller
@@ -272,12 +266,11 @@ def cli_visualize(args):
 def cli_gap(args):
     cfg       = get_config()
     store     = get_store(cfg)
-    embedder  = EmbeddingProvider.from_config(cfg)  # Fixed here
-    agent     = GapAgent(store, embedder, cfg)      # Fixed here
+    embedder  = EmbeddingProvider.from_config(cfg)
+    agent     = GapAgent(store, embedder, cfg)
     mode      = getattr(args, "mode", "anonymous")
     types     = getattr(args, "types", None)
     print(agent.daily_briefing(gap_types=types, mode=mode))
-
 
 
 # ── recommend ────────────────────────────────────────────────────────────────
@@ -285,11 +278,10 @@ def cli_gap(args):
 def cli_recommend(args):
     cfg       = get_config()
     store     = get_store(cfg)
-    embedder  = EmbeddingProvider.from_config(cfg)  # Fixed here
+    embedder  = EmbeddingProvider.from_config(cfg)
     mode      = getattr(args, "mode", "anonymous")
-    agent     = GapAgent(store, embedder, cfg)      # Fixed here
+    agent     = GapAgent(store, embedder, cfg)
     results   = agent.run(mode=mode, top_k=5)
-    
     
     if not results:
         print("No gaps or recommendations generated.")
@@ -485,19 +477,14 @@ def cli_export_wp(args):
 # ── index-local ───────────────────────────────────────────────────────────────
 
 def cli_index_local(args):
-    """
-    Build a local index of arXiv/Wikipedia abstracts for offline recommendation.
-    Queries arXiv API based on your top tags and saves embeddings to
-    data/local_index.json for use by Recommender in local mode.
-    """
     import json, urllib.request, urllib.parse
+    from datetime import datetime, timezone
     cfg      = get_config()
     store    = get_store(cfg)
     embedder = EmbeddingProvider.from_config(cfg)
     limit    = getattr(args, "limit", 2000)
     sources  = getattr(args, "sources", ["arxiv"])
 
-    # Get top tags to query
     notes    = store.get_all_notes()
     from collections import Counter
     tag_counts: Counter = Counter()
@@ -556,27 +543,16 @@ def cli_index_local(args):
     log.info(f"[index-local] Saved {len(items)} items to data/local_index.json")
 
 
-
+# ── youtube ───────────────────────────────────────────────────────────────────
 
 def cli_youtube(args):
-    """
-    Deep analysis of YouTube watch/search history from Google Takeout.
- 
-    Usage:
-      python main.py youtube ~/Downloads/Takeout/YouTube/history/
-      python main.py youtube ~/Downloads/Takeout/ --save
-      python main.py youtube ~/Downloads/Takeout/ --integrate-persona
-    """
     from brain.analysis.youtube_analyzer import YouTubeAnalyzer
-    from pathlib import Path as _Path
     import json as _json
  
     cfg      = get_config()
     analyzer = YouTubeAnalyzer(cfg)
+    root = Path(args.path).expanduser()
  
-    root = _Path(args.path).expanduser()
- 
-    # Try common Google Takeout layouts
     candidates_watch = [
         root / "watch-history.json",
         root / "YouTube" / "history" / "watch-history.json",
@@ -613,28 +589,41 @@ def cli_youtube(args):
         search_path  = search_path,
         playlist_dir = playlist_dir,
     )
- 
     report.print_summary()
  
     if getattr(args, 'save', False):
-        out = ROOT / "data" / "youtube_report.json"
+        out = Path("data") / "youtube_report.json"
         report.save(out)
         log.info(f"Report saved to {out}")
  
     if getattr(args, 'integrate_persona', False):
-        report.integrate_with_persona(ROOT / "data" / "persona.json")
+        report.integrate_with_persona(Path("data") / "persona.json")
         log.info("Persona updated with YouTube arc.")
- 
 
 
+# ── export-static ─────────────────────────────────────────────────────────────
+
+def cli_export_static(args):
+    """Export brain to a deployable GitHub Pages static site."""
+    from brain.visualize.static_export import StaticExporter
+    cfg   = get_config()
+    store = get_store(cfg)
+    out   = getattr(args, "out", "public_html")
+    exp   = StaticExporter(store, cfg, out_dir=out)
+    out_path = exp.export()
+    print(f"\n✓ Static site exported to {out_path}/")
+    print(f"\nTo deploy to GitHub Pages:")
+    print(f"  1. cd {out_path}")
+    print(f"  2. git init && git add . && git commit -m 'digital brain'")
+    print(f"  3. gh repo create YOUR_USERNAME/digital-brain --public --push --source=.")
+    print(f"  4. Go to repo Settings → Pages → Deploy from branch (main)")
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    from datetime import datetime, timezone
-
     parser = argparse.ArgumentParser(description="Digital Brain CLI")
+    parser.add_argument("--brain", default="core", choices=["core", "omni"], help="Target brain (core or omni)")
     sub    = parser.add_subparsers(dest="command", required=True)
 
     # ingest
@@ -697,7 +686,6 @@ def main():
     p.add_argument("--category",   default="Digital Brain")
     p.add_argument("--dry-run",    action="store_true")
 
-    
     # youtube
     p = sub.add_parser("youtube",
         help="Deep analysis of YouTube watch/search history from Google Takeout")
@@ -715,23 +703,33 @@ def main():
                    choices=["arxiv", "wikipedia"])
     p.add_argument("--limit", type=int, default=2000)
 
+    # export-static
+    pes = sub.add_parser("export-static", help="Export to static GitHub Pages site")
+    pes.add_argument("--out", default="public_html")
+
     args = parser.parse_args()
-    Path("data").mkdir(exist_ok=True)
+
+    global DB_PATH
+    DB_PATH = f"data/{args.brain}/brain.db"
+    os.environ["CHROMA_PATH"] = f"data/{args.brain}/chroma"
+    os.environ["QDRANT_PATH"] = f"data/{args.brain}/qdrant"
+    Path(f"data/{args.brain}").mkdir(parents=True, exist_ok=True)
 
     dispatch = {
-        "ingest":      cli_ingest,
-        "build":       cli_build,
-        "consolidate": cli_consolidate,
-        "query":       cli_query,
-        "visualize":   cli_visualize,
-        "gap":         cli_gap,
-        "recommend":   cli_recommend,
-        "persona":     cli_persona,
-        "wiki":        cli_wiki,
-        "generate":    cli_generate,
-        "export-wp":   cli_export_wp,
-        "index-local": cli_index_local,
-        "youtube":     cli_youtube,
+        "ingest":        cli_ingest,
+        "build":         cli_build,
+        "consolidate":   cli_consolidate,
+        "query":         cli_query,
+        "visualize":     cli_visualize,
+        "gap":           cli_gap,
+        "recommend":     cli_recommend,
+        "persona":       cli_persona,
+        "wiki":          cli_wiki,
+        "generate":      cli_generate,
+        "export-wp":     cli_export_wp,
+        "index-local":   cli_index_local,
+        "youtube":       cli_youtube,
+        "export-static": cli_export_static,
     }
 
     fn = dispatch.get(args.command)
@@ -739,11 +737,6 @@ def main():
         fn(args)
     else:
         parser.print_help()
-
-
-
-
-
 
 
 if __name__ == "__main__":

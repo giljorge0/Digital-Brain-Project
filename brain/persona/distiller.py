@@ -120,6 +120,10 @@ class PersonaDistiller:
     def _topical_fingerprint(self, notes: list) -> dict:
         tag_counts: Counter     = Counter()
         concept_counts: Counter = Counter()
+        
+        # Add this blacklist to ignore administrative metadata
+        BLACKLIST = {"authored", "output", "input", "generated", "synthesis", "uncategorised", "external"}
+        
         stopwords = {
             "the","a","an","and","or","but","in","on","at","to","for","of",
             "with","by","from","is","was","are","were","it","this","that",
@@ -128,7 +132,9 @@ class PersonaDistiller:
         }
         for note in notes:
             for tag in note.tags:
-                tag_counts[tag] += 1
+                # Add this if-statement to filter out the metadata
+                if tag.lower() not in BLACKLIST:
+                    tag_counts[tag] += 1
             words = re.findall(r'\b[a-z]{4,}\b', note.content.lower())
             for w in words:
                 if w not in stopwords:
@@ -269,13 +275,17 @@ what questions drive them. Be specific, not generic."""
 
     def _llm_extract_stances(self, notes: list) -> dict:
         all_tags: Counter = Counter()
+        # Add the same blacklist here[cite: 5]
+        BLACKLIST = {"authored", "output", "input", "generated", "synthesis", "uncategorised", "external"}
+
         for n in notes:
             for t in n.tags:
-                all_tags[t] += 1
+                # Filter the tags before counting[cite: 5]
+                if t.lower() not in BLACKLIST:
+                    all_tags[t] += 1
 
         top_topics = [t for t, _ in all_tags.most_common(10)]
         stances    = {}
-
         for topic in top_topics:
             topic_notes = [n for n in notes if topic in n.tags][:5]
             if not topic_notes:
