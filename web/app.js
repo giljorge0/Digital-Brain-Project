@@ -179,6 +179,8 @@ function navigate(view) {
   const viewEl = $(`#view-${view}`);
   if (!viewEl) return;
 
+  window.scrollTo(0, 0);
+
   State.activeView = view;
   viewEl.style.display = view === 'brain' ? 'block' : '';
   // trigger reflow before adding class for transition
@@ -435,8 +437,18 @@ function buildGraph() {
   State.graphData = { ...data };
 
   const nodes = data.nodes.map(n => ({ ...n }));
-  const links = data.links.map(l => ({ ...l }));
-
+  
+  // PERFORMANCE OVERRIDE: Map clusters and drop cross-cluster edges
+  const clusterMap = {};
+  nodes.forEach(n => { clusterMap[n.id] = n.cluster; });
+  
+  const links = data.links.map(l => ({ ...l })).filter(l => {
+    const s = typeof l.source === 'object' ? l.source.id : l.source;
+    const t = typeof l.target === 'object' ? l.target.id : l.target;
+    // Only keep the link if both notes belong to the exact same cluster
+    return clusterMap[s] !== undefined && clusterMap[s] === clusterMap[t];
+  });
+  
   const svg     = d3.select('#graph-svg');
   const width   = () => svg.node().clientWidth;
   const height  = () => svg.node().clientHeight;
@@ -583,7 +595,7 @@ function buildGraph() {
       }
     });
   }
-  
+
   // Mine only
   $('#btn-mine')?.addEventListener('click', function() {
     State.graphMineOnly = !State.graphMineOnly;
