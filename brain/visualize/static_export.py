@@ -38,7 +38,7 @@ class StaticExporter:
             from brain.memory.graph import GraphBuilder
             builder = GraphBuilder(self.store)
             G = builder.build(use_explicit=True, use_tags=True, use_semantic=False)
-            nodes = [{"id": nid, "title": G.nodes[nid].get("title", nid), "cluster": G.nodes[nid].get("cluster", 0), "centrality": round(G.nodes[nid].get("centrality", 0.001), 5), "tags": self.store.get_note(nid).tags[:6] if self.store.get_note(nid) else [], "role": self.store.get_note(nid).metadata.get("provenance_role","input") if self.store.get_note(nid) else "input", "snippet": self.store.get_note(nid).short_content(120) if self.store.get_note(nid) else ""} for nid in G.nodes()]
+            nodes = [{"id": nid, "title": self.store.get_note(nid).title if self.store.get_note(nid) and self.store.get_note(nid).title else "Untitled Note", "cluster": G.nodes[nid].get("cluster", 0), "centrality": round(G.nodes[nid].get("centrality", 0.001), 5), "tags": self.store.get_note(nid).tags[:6] if self.store.get_note(nid) else [], "role": self.store.get_note(nid).metadata.get("provenance_role","input") if self.store.get_note(nid) else "input", "snippet": self.store.get_note(nid).short_content(120) if self.store.get_note(nid) else ""} for nid in G.nodes()]
             links = [{"source": u, "target": v, "type": data.get("edge_type", "explicit"), "weight": round(float(data.get("weight", 1.0)), 3)} for u, v, data in G.edges(data=True)]
         except Exception:
             nodes, links = [], []

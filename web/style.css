@@ -1064,3 +1064,9 @@ body::after {
 .note-card {
   animation: fadeInUp 350ms var(--ease) both;
 }
+
+/* --- Fix Vertical Alignment for Growing Views --- */
+#view-garden, #view-profile {
+  justify-content: flex-start !important;
+  padding-top: 120px !important; 
+}
