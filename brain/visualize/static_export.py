@@ -58,6 +58,10 @@ class StaticExporter:
         BLACKLIST = {"output", "input", "llm_chat", "web_clip", "pdf", "document", 
                      "generated", "synthesis", "authored", "external", "uncategorised"}
 
+        # ── NEW: Ensure the PDF directory exists inside public_html ──
+        pdf_dir = self.out_dir / "pdfs"
+        pdf_dir.mkdir(parents=True, exist_ok=True)
+
         categories = {}
         for note in output_notes:
             # 1. Look for a traditional category first
@@ -69,7 +73,24 @@ class StaticExporter:
             
             html_content = markdown.markdown(note.content)
             
-            categories.setdefault(cat, []).append({
+            # ── NEW: Handle PDF Copying and Linking ──
+            source_pdf_rel = None
+            
+            # Check if note has a source_file attribute and if it's a PDF
+            original_pdf_path = None
+            if hasattr(note, 'source_file') and note.source_file and str(note.source_file).lower().endswith('.pdf'):
+                original_pdf_path = Path(note.source_file)
+            elif hasattr(note, 'metadata') and note.metadata.get('source_file', '').lower().endswith('.pdf'):
+                original_pdf_path = Path(note.metadata['source_file'])
+
+            # If we found a PDF, copy it to public_html/pdfs/
+            if original_pdf_path and original_pdf_path.exists():
+                dest_pdf_path = pdf_dir / original_pdf_path.name
+                if not dest_pdf_path.exists():
+                    shutil.copy2(original_pdf_path, dest_pdf_path)
+                source_pdf_rel = f"pdfs/{original_pdf_path.name}"
+
+            note_dict = {
                 "id": note.id, 
                 "title": note.title, 
                 "content": html_content,
@@ -77,11 +98,17 @@ class StaticExporter:
                 "date": note.date.strftime("%Y-%m-%d") if note.date else "",
                 "word_count": note.word_count(), 
                 "links": note.links[:20],
-            })
+            }
+
+            # If a PDF was copied, add the relative link to the JSON
+            if source_pdf_rel:
+                note_dict["source_pdf"] = source_pdf_rel
+
+            categories.setdefault(cat, []).append(note_dict)
 
         sorted_cats = dict(sorted(categories.items(), key=lambda kv: len(kv[1]), reverse=True))
         (self.out_dir / "notes.json").write_text(json.dumps({"categories": sorted_cats, "total": len(output_notes)}, ensure_ascii=False), encoding="utf-8")
-
+        
     def _export_persona(self):
         persona_path = Path("data/persona.json")
         if persona_path.exists():

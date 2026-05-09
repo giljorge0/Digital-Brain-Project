@@ -152,64 +152,119 @@ class GraphBuilder:
                         added += 1
         log.info(f"[graph] Added {added} explicit edges")
 
-    def _add_tag_edges(self, G, notes):
-        """Connect notes that share tags using Jaccard similarity as weight."""
+    def _add_tag_edges(self, G, notes, max_edges_per_node=15):
+        """Connect notes using an inverted index to avoid O(N^2) lockups."""
         added = 0
-        note_list = [(n.id, set(n.tags)) for n in notes if n.tags]
-        for i, (id_a, tags_a) in enumerate(note_list):
-            for id_b, tags_b in note_list[i + 1:]:
-                if id_a == id_b:
-                    continue
-                intersection = tags_a & tags_b
-                if not intersection:
-                    continue
-                union = tags_a | tags_b
-                jaccard = len(intersection) / len(union)
-                if jaccard >= 0.2:  # at least 20% overlap
-                    if not G.has_edge(id_a, id_b):
-                        G.add_edge(id_a, id_b,
-                                   edge_type="tag", weight=round(jaccard, 3))
-                        self.store.upsert_edge(id_a, id_b, "tag", jaccard,
-                                               {"shared_tags": list(intersection)})
-                        added += 1
-        log.info(f"[graph] Added {added} tag edges")
+        tags_dict = {n.id: set(n.tags) for n in notes if n.tags}
+        
+        # 1. Build Inverted Index (Tag -> List of Notes)
+        inverted = {}
+        for n_id, t_set in tags_dict.items():
+            for t in t_set:
+                inverted.setdefault(t, []).append(n_id)
 
-    def _add_semantic_edges(self, G):
-        """Connect notes with cosine similarity above threshold."""
+        log.info(f"[graph] Computing tag edges (inverted index) for {len(tags_dict)} notes...")
+        
+        count = 0
+        for id_a, tags_a in tags_dict.items():
+            count += 1
+            if count % 5000 == 0:
+                log.info(f"[graph] ... processed {count}/{len(tags_dict)} notes for tags")
+                
+            # 2. Fast lookup of shared tags
+            shared_counts = {}
+            for t in tags_a:
+                for id_b in inverted[t]:
+                    if id_a != id_b:
+                        shared_counts[id_b] = shared_counts.get(id_b, 0) + 1
+                        
+            neighbors = []
+            for id_b, intersect_len in shared_counts.items():
+                union_len = len(tags_a) + len(tags_dict[id_b]) - intersect_len
+                jaccard = intersect_len / union_len
+                if jaccard >= 0.2:
+                    neighbors.append((jaccard, id_b))
+            
+            # 3. Top-K limit to prevent memory blowout
+            neighbors.sort(reverse=True, key=lambda x: x[0])
+            for jaccard, id_b in neighbors[:max_edges_per_node]:
+                if not G.has_edge(id_a, id_b):
+                    G.add_edge(id_a, id_b, edge_type="tag", weight=round(jaccard, 3))
+                    self.store.upsert_edge(id_a, id_b, "tag", jaccard, {})
+                    added += 1
+
+        log.info(f"[graph] Added {added} tag edges (Top-{max_edges_per_node} capped)")
+
+    def _add_semantic_edges(self, G, max_edges_per_node=15):
+        """Connect notes using batched Matrix math to prevent OOM freezes."""
         embeddings = self.store.get_all_embeddings()
         if len(embeddings) < 2:
             return
 
         ids = list(embeddings.keys())
-        vecs = [embeddings[i] for i in ids]
         added = 0
-
-        for i in range(len(ids)):
-            for j in range(i + 1, len(ids)):
-                sim = _cosine(vecs[i], vecs[j])
-                if sim >= self.threshold:
-                    id_a, id_b = ids[i], ids[j]
+        
+        try:
+            import numpy as np
+            log.info(f"[graph] Using NumPy for fast batched semantic similarity on {len(ids)} nodes...")
+            
+            vecs = np.array([embeddings[i] for i in ids], dtype=np.float32)
+            # Normalize vectors for ultra-fast dot-product cosine math
+            norms = np.linalg.norm(vecs, axis=1, keepdims=True)
+            norms[norms == 0] = 1e-10
+            vecs_norm = vecs / norms
+            
+            batch_size = 1000 # Process 1,000 nodes at a time
+            for i in range(0, len(ids), batch_size):
+                end = min(i + batch_size, len(ids))
+                batch_vecs = vecs_norm[i:end]
+                
+                # Instantly calculate similarity for the batch against ALL other notes
+                sim_matrix = np.dot(batch_vecs, vecs_norm.T)
+                
+                for row_idx in range(sim_matrix.shape[0]):
+                    global_i = i + row_idx
+                    id_a = ids[global_i]
+                    row_sims = sim_matrix[row_idx]
+                    
+                    # Find indices above threshold
+                    valid_idx = np.where(row_sims >= self.threshold)[0]
+                    
+                    neighbors = [(float(row_sims[j]), ids[j]) for j in valid_idx if j != global_i]
+                    
+                    # Keep only Top-K
+                    neighbors.sort(reverse=True, key=lambda x: x[0])
+                    for sim, id_b in neighbors[:max_edges_per_node]:
+                        if not G.has_edge(id_a, id_b):
+                            G.add_edge(id_a, id_b, edge_type="semantic", weight=round(sim, 4))
+                            self.store.upsert_edge(id_a, id_b, "semantic", sim, {"similarity": sim})
+                            added += 1
+                            
+                log.info(f"[graph] ... semantic batch {end}/{len(ids)} done")
+                
+        except ImportError:
+            log.info("[graph] NumPy not found. Using pure Python chunked fallback...")
+            vecs = [embeddings[i] for i in ids]
+            mags = [math.sqrt(sum(x*x for x in v)) for v in vecs]
+            for i in range(len(ids)):
+                if i % 1000 == 0 and i > 0:
+                    log.info(f"[graph] ... semantic batch {i}/{len(ids)} done")
+                id_a, vec_a, mag_a = ids[i], vecs[i], mags[i]
+                if mag_a == 0: continue
+                neighbors = []
+                for j in range(len(ids)):
+                    if i == j or mags[j] == 0: continue
+                    sim = sum(x*y for x,y in zip(vec_a, vecs[j])) / (mag_a * mags[j])
+                    if sim >= self.threshold:
+                        neighbors.append((sim, ids[j]))
+                neighbors.sort(reverse=True, key=lambda x: x[0])
+                for sim, id_b in neighbors[:max_edges_per_node]:
                     if not G.has_edge(id_a, id_b):
-                        G.add_edge(id_a, id_b,
-                                   edge_type="semantic", weight=round(sim, 4))
-                        self.store.upsert_edge(id_a, id_b, "semantic", sim,
-                                               {"similarity": sim})
+                        G.add_edge(id_a, id_b, edge_type="semantic", weight=round(sim, 4))
+                        self.store.upsert_edge(id_a, id_b, "semantic", sim, {"similarity": sim})
                         added += 1
 
-        log.info(f"[graph] Added {added} semantic edges "
-                 f"(threshold={self.threshold})")
-
-    def _fallback_clusters(self, G) -> dict:
-        """Use weakly connected components if Louvain unavailable."""
-        undirected = G.to_undirected()
-        partition = {}
-        for cluster_id, component in enumerate(
-                nx.connected_components(undirected)):
-            for node in component:
-                partition[node] = cluster_id
-        for node_id, cluster in partition.items():
-            self.store.update_cluster(node_id, cluster)
-        return partition
+        log.info(f"[graph] Added {added} semantic edges (Top-{max_edges_per_node} capped)")
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────

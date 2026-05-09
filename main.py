@@ -288,12 +288,34 @@ def cli_recommend(args):
         return
     for r in results:
         gap, recs = r["gap"], r["recommendations"]
-        print(f"\n── {gap.get('type','?').upper()}: {gap.get('label','?')} ──")
-        if gap.get("explanation"):
-            print(f"   {gap['explanation']}")
+
+        # Gap is a dataclass — getattr, never .get()
+        gap_type  = getattr(gap, 'gap_type',    getattr(gap, 'type', '?'))
+        gap_title = getattr(gap, 'title',       getattr(gap, 'label', '?'))
+        gap_desc  = getattr(gap, 'description', getattr(gap, 'explanation', ''))
+        gap_score = getattr(gap, 'priority_score', None)
+        gap_acts  = getattr(gap, 'suggested_actions', [])
+        score_str = f"  [priority={gap_score:.2f}]" if gap_score is not None else ""
+
+        print(f"\n── {gap_type.upper()}: {gap_title}{score_str} ──")
+        if gap_desc:
+            print(f"   {gap_desc}")
+        for action in (gap_acts or [])[:2]:
+            print(f"   • {action}")
+
         for rec in recs:
-            cert = " [ZK✓]" if rec.get("zk_certified") else ""
-            print(f"   → [{rec.get('source_type','')}] {rec.get('title','')}{cert}")
+            # Recommendation is also a dataclass — getattr, never .get()
+            r_type  = getattr(rec, 'source_type',  '')
+            r_title = getattr(rec, 'title',        '')
+            r_cert  = getattr(rec, 'zk_certified', False)
+            r_why   = getattr(rec, 'why',          '')
+            r_url   = getattr(rec, 'url',          '')
+            cert    = " [ZK\u2713]" if r_cert else ""
+            print(f"   \u2192 [{r_type}] {r_title}{cert}")
+            if r_why:
+                print(f"      {r_why}")
+            if r_url:
+                print(f"      {r_url}")
 
 
 # ── persona ───────────────────────────────────────────────────────────────────
