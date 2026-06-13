@@ -249,10 +249,10 @@ def cli_query(args):
 def cli_visualize(args):
     store    = get_store(get_config())
     builder  = GraphBuilder(store)
-    GraphExporter(store, builder).export_json("web/graph_data.json")
+    GraphExporter(store, builder).export_json("public_html/graph_data.json")
 
     log.info("Starting server at http://localhost:8000  (Ctrl+C to stop)")
-    os.chdir("web")
+    os.chdir("public_html")
     import http.server, socketserver
     with socketserver.TCPServer(("", 8000), http.server.SimpleHTTPRequestHandler) as httpd:
         try:

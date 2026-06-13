@@ -524,7 +524,7 @@ class PersonaDistiller:
         return {k: round(v / total, 3) for k, v in patterns.items()}
 
     def _temporal_arc(self, notes: list) -> dict:
-        dated = sorted([n for n in notes if n.date], key=lambda n: n.date)
+        dated = sorted([n for n in notes if n.date], key=lambda n: n.date.replace(tzinfo=None))
         if not dated:
             return {}
         by_year: dict = {}
@@ -552,7 +552,7 @@ class PersonaDistiller:
         Reveals whether writing has grown more complex, more hedged, more
         question-driven, etc. over time.
         """
-        dated = sorted([n for n in notes if n.date], key=lambda n: n.date)
+        dated = sorted([n for n in notes if n.date], key=lambda n: n.date.replace(tzinfo=None))
         if not dated:
             return {}
 

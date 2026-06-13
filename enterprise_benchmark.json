@@ -1,0 +1,693 @@
+{
+  "generated_at": "2026-05-19T12:13:05.831217",
+  "db_path": "/home/gil/Documents/trab/Digital-Brain-Project/data/brain.db",
+  "db_stats": {
+    "notes": 2076,
+    "edges": 244125,
+    "notes_with_embeddings": 2076,
+    "clusters": 706,
+    "tags": [
+      "AI",
+      "Business",
+      "Life",
+      "Literature",
+      "Math",
+      "Philosophy",
+      "Physics",
+      "Science",
+      "Social",
+      "Technology",
+      "Writing",
+      "alicerce_primordial",
+      "all_cards",
+      "authored",
+      "business",
+      "coisa_de",
+      "generated",
+      "life",
+      "literature",
+      "math",
+      "never_a",
+      "o_m\u00e9todo",
+      "output",
+      "pdf",
+      "philosophy",
+      "physics",
+      "promising",
+      "science",
+      "social",
+      "synthesis",
+      "technology",
+      "uma_viagem",
+      "virtue_is",
+      "wiki_page",
+      "writing"
+    ]
+  },
+  "n_questions": 7,
+  "strategies": [
+    "semantic",
+    "graph_traversal",
+    "temporal"
+  ],
+  "top_k": 10,
+  "results": [
+    {
+      "id": "q1",
+      "question": "What is Frank Jackson's Mary's Room thought experiment and how does it challenge physicalism?",
+      "type": "factual",
+      "gold_ids": [
+        "3c29e08e7da350c0"
+      ],
+      "gold_source": "provided",
+      "semantic": {
+        "retrieved_ids": [
+          "a7e2751a953b7592",
+          "0df0bb8e454fed23",
+          "6f1a7883a68a1dbe",
+          "2257bba61d2e00a8",
+          "644100bd08b745b1",
+          "d40ba29ac5c07966",
+          "50aca8d4687a2169",
+          "baa5a3339b4fe220",
+          "61a2501d473b1738",
+          "56790bf939493426"
+        ],
+        "retrieved_titles": [
+          "Human, All Too Human: Imposing Narrative",
+          "Jon Fosse: Meditation, the Baudrillardic",
+          "Uma Brancura Luminosa: A Meditative Exer",
+          "Idea: Notes from Underground- The Ridicu",
+          "Jon Fosse: Escape from Advertising and t"
+        ],
+        "confidence": 0.91,
+        "hit_rate": 0.0,
+        "mrr": 0.0,
+        "ndcg": 0.0,
+        "citation_overlap": 0.0
+      },
+      "graph_traversal": {
+        "retrieved_ids": [
+          "0df0bb8e454fed23",
+          "6f1a7883a68a1dbe",
+          "3ede93497e0b671d",
+          "fba38c4ce938974c",
+          "78b9a7086c91b449",
+          "d40ba29ac5c07966",
+          "50aca8d4687a2169",
+          "c96818bc79d0caea",
+          "df1f40499af2288b",
+          "4229003dd5caf667"
+        ],
+        "retrieved_titles": [
+          "Jon Fosse: Meditation, the Baudrillardic",
+          "Uma Brancura Luminosa: A Meditative Exer",
+          "Winning The Unforgiving Race to Greatnes",
+          "Thus Spoke Zarathustra- Reading a Book T",
+          "What is Life With Mind and Matter and Au"
+        ],
+        "confidence": 0.86,
+        "hit_rate": 0.0,
+        "mrr": 0.0,
+        "ndcg": 0.0,
+        "citation_overlap": 0.0
+      },
+      "temporal": {
+        "retrieved_ids": [
+          "ebdfab07d4697465",
+          "70df32647e093f03",
+          "66c4ab9cf9e284ee",
+          "38fb36c11af1ba8b",
+          "a67365ccc5035f1d",
+          "505ab30fe44cdd4e",
+          "bf119354eb5520c9",
+          "66e2b8a836f0b528",
+          "fd5503a6de3fa231",
+          "be7ea77f445399e5"
+        ],
+        "retrieved_titles": [
+          "Wiki: Science",
+          "Wiki: Coisa_De",
+          "Wiki: Never A",
+          "Wiki: Uma_Viagem",
+          "Wiki: Alicerce_Primordial"
+        ],
+        "confidence": 1.0,
+        "hit_rate": 0.0,
+        "mrr": 0.0,
+        "ndcg": 0.0,
+        "citation_overlap": 0.0
+      }
+    },
+    {
+      "id": "q2",
+      "question": "What is the atomic hypothesis and why did Feynman consider it the most important piece of information?",
+      "type": "factual",
+      "gold_ids": [
+        "85a721cb0a9355b4"
+      ],
+      "gold_source": "provided",
+      "semantic": {
+        "retrieved_ids": [
+          "85a721cb0a9355b4",
+          "12c83cfebaaa37b5",
+          "deb6399268d9fd19",
+          "2da44979c60ad5ee",
+          "ebdfab07d4697465",
+          "baa5a3339b4fe220",
+          "61a2501d473b1738",
+          "955215ec54b39cc9",
+          "6c09706dcc293e24",
+          "d67dab08e460f90c"
+        ],
+        "retrieved_titles": [
+          "The Meaning of It All: The Atomic Hypoth",
+          "Wiki: Physics",
+          "Idea: don't fill the gaps too well",
+          "don't fill the gaps too well",
+          "Wiki: Science"
+        ],
+        "confidence": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0,
+        "citation_overlap": 0.0
+      },
+      "graph_traversal": {
+        "retrieved_ids": [
+          "85a721cb0a9355b4",
+          "ebdfab07d4697465",
+          "baa5a3339b4fe220",
+          "61a2501d473b1738",
+          "3bf680295eb2730a",
+          "cc5484f8f5681689",
+          "b211244bd8ade74b",
+          "6c09706dcc293e24",
+          "62b248a77b57db12",
+          "7f425b7cf28722da"
+        ],
+        "retrieved_titles": [
+          "The Meaning of It All: The Atomic Hypoth",
+          "Wiki: Science",
+          "Idea: What Do You Care What Other_- Feyn",
+          "What Do You Care What Other_- Feynman's ",
+          "ontology of information"
+        ],
+        "confidence": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0,
+        "citation_overlap": 0.0
+      },
+      "temporal": {
+        "retrieved_ids": [
+          "fd5503a6de3fa231",
+          "505ab30fe44cdd4e",
+          "ebdfab07d4697465",
+          "a67365ccc5035f1d",
+          "bf119354eb5520c9",
+          "66e2b8a836f0b528",
+          "66c4ab9cf9e284ee",
+          "38fb36c11af1ba8b",
+          "70df32647e093f03",
+          "be7ea77f445399e5"
+        ],
+        "retrieved_titles": [
+          "Wiki: Social",
+          "Wiki: All Cards",
+          "Wiki: Science",
+          "Wiki: Alicerce_Primordial",
+          "Wiki: Virtue Is"
+        ],
+        "confidence": 0.92,
+        "hit_rate": 0.0,
+        "mrr": 0.0,
+        "ndcg": 0.0,
+        "citation_overlap": 0.0
+      }
+    },
+    {
+      "id": "q3",
+      "question": "Can everything be known through a priori reasoning alone, or are there facts that can only be known a posteriori?",
+      "type": "factual",
+      "gold_ids": [
+        "3c29e08e7da350c0"
+      ],
+      "gold_source": "provided",
+      "semantic": {
+        "retrieved_ids": [
+          "0c3c4b72fc0d7ac4",
+          "6f5afc907ad63c21",
+          "1c095bcd9aacff8c",
+          "4ba6b70248ac4bcd",
+          "85a721cb0a9355b4",
+          "8eeb0a23acd97037",
+          "2da44979c60ad5ee",
+          "fc26cfcc30b267a6",
+          "3bf680295eb2730a",
+          "c06ff23077f49c4b"
+        ],
+        "retrieved_titles": [
+          "dynamics of expansion of knowledge and o",
+          "fast discussions and debates",
+          "Idea: dynamics of expansion of knowledge",
+          "Idea: fast discussions and debates",
+          "The Meaning of It All: The Atomic Hypoth"
+        ],
+        "confidence": 0.88,
+        "hit_rate": 0.0,
+        "mrr": 0.0,
+        "ndcg": 0.0,
+        "citation_overlap": 0.0
+      },
+      "graph_traversal": {
+        "retrieved_ids": [
+          "9d28e4b4a759cdec",
+          "cc5484f8f5681689",
+          "3776b3f575ef71e5",
+          "63741b2f0199f396",
+          "85a721cb0a9355b4",
+          "8eeb0a23acd97037",
+          "e681c62ed4201a72",
+          "6d3f6f1ff1829fbe",
+          "1ae67d690d4fac38",
+          "2a56ed3a82896e3a"
+        ],
+        "retrieved_titles": [
+          "lossy impressionistic compression",
+          "The Unabomber Manifesto: Science as a Su",
+          "practical consequence of p vs np",
+          "think and post app from first principles",
+          "The Meaning of It All: The Atomic Hypoth"
+        ],
+        "confidence": 0.96,
+        "hit_rate": 0.0,
+        "mrr": 0.0,
+        "ndcg": 0.0,
+        "citation_overlap": 0.0
+      },
+      "temporal": {
+        "retrieved_ids": [
+          "505ab30fe44cdd4e",
+          "66c4ab9cf9e284ee",
+          "ebdfab07d4697465",
+          "38fb36c11af1ba8b",
+          "fd5503a6de3fa231",
+          "70df32647e093f03",
+          "a67365ccc5035f1d",
+          "bf119354eb5520c9",
+          "66e2b8a836f0b528",
+          "be7ea77f445399e5"
+        ],
+        "retrieved_titles": [
+          "Wiki: All Cards",
+          "Wiki: Never A",
+          "Wiki: Science",
+          "Wiki: Uma_Viagem",
+          "Wiki: Social"
+        ],
+        "confidence": 1.0,
+        "hit_rate": 0.0,
+        "mrr": 0.0,
+        "ndcg": 0.0,
+        "citation_overlap": 0.0
+      }
+    },
+    {
+      "id": "q4",
+      "question": "How did my view on free will evolve over time?",
+      "type": "temporal",
+      "gold_ids": [
+        "1a33127cf8bacc1f",
+        "d82536222a24cd4a",
+        "420ac22b2c13129b"
+      ],
+      "gold_source": "auto",
+      "semantic": {
+        "retrieved_ids": [
+          "7f40cb920c0f7b17",
+          "d1c8f17e8b7ceab1",
+          "1a33127cf8bacc1f",
+          "d82536222a24cd4a",
+          "64172511860a79ea",
+          "a4d99e3145df81ba",
+          "a5a6f91100b92a5c",
+          "d2dd2ab07a5292bd",
+          "420ac22b2c13129b",
+          "10713ea978773794"
+        ],
+        "retrieved_titles": [
+          "Idea: Notes from Underground- The Parado",
+          "Notes from Underground- The Paradox of U",
+          "Notes from Underground- Would Proof of N",
+          "Idea: Notes from Underground- Would Proo",
+          "Thus Spoke Zarathustra- Freedom of Will "
+        ],
+        "confidence": 0.93,
+        "hit_rate": 1.0,
+        "mrr": 0.3333333333333333,
+        "ndcg": 0.5780136823717549,
+        "citation_overlap": 0.0
+      },
+      "graph_traversal": {
+        "retrieved_ids": [
+          "d1c8f17e8b7ceab1",
+          "1a33127cf8bacc1f",
+          "d82536222a24cd4a",
+          "7ecd7e4e25a39243",
+          "25d7d82821fe6fe4",
+          "420ac22b2c13129b",
+          "fb4867583068577e",
+          "5dbfaddb53e90b07",
+          "d208b4744430d78b",
+          "ed248d828fa73214"
+        ],
+        "retrieved_titles": [
+          "Notes from Underground- The Paradox of U",
+          "Notes from Underground- Would Proof of N",
+          "Idea: Notes from Underground- Would Proo",
+          "Notes from Underground- Master Every Bra",
+          "Notes from Underground- Exposing Our Dec"
+        ],
+        "confidence": 0.87,
+        "hit_rate": 1.0,
+        "mrr": 0.5,
+        "ndcg": 0.6978817289434457,
+        "citation_overlap": 0.0
+      },
+      "temporal": {
+        "retrieved_ids": [
+          "ebdfab07d4697465",
+          "66e2b8a836f0b528",
+          "66c4ab9cf9e284ee",
+          "38fb36c11af1ba8b",
+          "505ab30fe44cdd4e",
+          "bf119354eb5520c9",
+          "a67365ccc5035f1d",
+          "fd5503a6de3fa231",
+          "70df32647e093f03",
+          "be7ea77f445399e5"
+        ],
+        "retrieved_titles": [
+          "Wiki: Science",
+          "Wiki: Promising",
+          "Wiki: Never A",
+          "Wiki: Uma_Viagem",
+          "Wiki: All Cards"
+        ],
+        "confidence": 0.87,
+        "hit_rate": 0.0,
+        "mrr": 0.0,
+        "ndcg": 0.0,
+        "citation_overlap": 0.0
+      }
+    },
+    {
+      "id": "q5",
+      "question": "What notes connect epistemology and language?",
+      "type": "graph",
+      "gold_ids": [
+        "9ef227e7e9d1d60f",
+        "f5993fd2309e28e4",
+        "fba38c4ce938974c"
+      ],
+      "gold_source": "auto",
+      "semantic": {
+        "retrieved_ids": [
+          "9ef227e7e9d1d60f",
+          "f5993fd2309e28e4",
+          "fba38c4ce938974c",
+          "8b74acd5b1e4fff2",
+          "719e2e3e294fd47e",
+          "4180233843d5914f",
+          "c20383334065d34d",
+          "dc14fd0f073ee73e",
+          "89623e61fbae07ff",
+          "f817fbb1590c8b62"
+        ],
+        "retrieved_titles": [
+          "Idea: Thus Spoke Zarathustra- The Quantu",
+          "Thus Spoke Zarathustra- The Quantum Coll",
+          "Thus Spoke Zarathustra- Reading a Book T",
+          "Thus Spoke Zarathustra- Language as Tool",
+          "Human, All Too Human: Unity of Words and"
+        ],
+        "confidence": 0.67,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0,
+        "citation_overlap": 0.0
+      },
+      "graph_traversal": {
+        "retrieved_ids": [
+          "9ef227e7e9d1d60f",
+          "f5993fd2309e28e4",
+          "fba38c4ce938974c",
+          "99414b89f73d5339",
+          "09f5ef374d791f7e",
+          "b211244bd8ade74b",
+          "466c3223ac9c52b2",
+          "61a2501d473b1738",
+          "62b248a77b57db12",
+          "cc93617a0bec5225"
+        ],
+        "retrieved_titles": [
+          "Idea: Thus Spoke Zarathustra- The Quantu",
+          "Thus Spoke Zarathustra- The Quantum Coll",
+          "Thus Spoke Zarathustra- Reading a Book T",
+          "Thus Spoke Zarathustra- A Pseudo-Scienti",
+          "From Bruce Springsteen"
+        ],
+        "confidence": 0.67,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0,
+        "citation_overlap": 0.0
+      },
+      "temporal": {
+        "retrieved_ids": [
+          "505ab30fe44cdd4e",
+          "38fb36c11af1ba8b",
+          "70df32647e093f03",
+          "bf119354eb5520c9",
+          "66e2b8a836f0b528",
+          "66c4ab9cf9e284ee",
+          "fd5503a6de3fa231",
+          "ebdfab07d4697465",
+          "a67365ccc5035f1d",
+          "be7ea77f445399e5"
+        ],
+        "retrieved_titles": [
+          "Wiki: All Cards",
+          "Wiki: Uma_Viagem",
+          "Wiki: Coisa_De",
+          "Wiki: Virtue Is",
+          "Wiki: Promising"
+        ],
+        "confidence": 1.0,
+        "hit_rate": 0.0,
+        "mrr": 0.0,
+        "ndcg": 0.0,
+        "citation_overlap": 0.0
+      }
+    },
+    {
+      "id": "q6",
+      "question": "Where do I hold contradictory positions?",
+      "type": "contradiction",
+      "gold_ids": [
+        "149318416e7174cb",
+        "b654bf84f80fc7f1",
+        "04a6e6f285921280"
+      ],
+      "gold_source": "auto",
+      "semantic": {
+        "retrieved_ids": [
+          "b46e20f4d45747b0",
+          "130be4e5568ae03b",
+          "2f7f3eeef3bded1a",
+          "b654bf84f80fc7f1",
+          "3bdfcd35a5fc76b5",
+          "5a181973938bb633",
+          "149318416e7174cb",
+          "04a6e6f285921280",
+          "0add554fcf8695db",
+          "88f1dcbd5c052c0a"
+        ],
+        "retrieved_titles": [
+          "Idea: virtue is in the middle",
+          "virtue is in the middle",
+          "Idea: sailing in zig zag",
+          "A mathematician's apology- Say the Least",
+          "Idea: A mathematician's apology- Say the"
+        ],
+        "confidence": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 0.25,
+        "ndcg": 0.5065745439910657,
+        "citation_overlap": 0.0
+      },
+      "graph_traversal": {
+        "retrieved_ids": [
+          "cb655ad041aeab19",
+          "b654bf84f80fc7f1",
+          "ff3641597046480c",
+          "0338ade82ea4fc76",
+          "166cad9238aef078",
+          "bb9fdc2ef76693b6",
+          "b4ea6f0990ab2439",
+          "0b8288527b056f30",
+          "6c2374a07ee933d3",
+          "a38aa92ab80aed13"
+        ],
+        "retrieved_titles": [
+          "streamrolling",
+          "A mathematician's apology- Say the Least",
+          "aight",
+          "familiar voice",
+          "mind games"
+        ],
+        "confidence": 0.78,
+        "hit_rate": 1.0,
+        "mrr": 0.5,
+        "ndcg": 0.2960819109658652,
+        "citation_overlap": 0.0
+      },
+      "temporal": {
+        "retrieved_ids": [
+          "505ab30fe44cdd4e",
+          "bf119354eb5520c9",
+          "66c4ab9cf9e284ee",
+          "38fb36c11af1ba8b",
+          "70df32647e093f03",
+          "a67365ccc5035f1d",
+          "66e2b8a836f0b528",
+          "fd5503a6de3fa231",
+          "ebdfab07d4697465",
+          "be7ea77f445399e5"
+        ],
+        "retrieved_titles": [
+          "Wiki: All Cards",
+          "Wiki: Virtue Is",
+          "Wiki: Never A",
+          "Wiki: Uma_Viagem",
+          "Wiki: Coisa_De"
+        ],
+        "confidence": 1.0,
+        "hit_rate": 0.0,
+        "mrr": 0.0,
+        "ndcg": 0.0,
+        "citation_overlap": 0.0
+      }
+    },
+    {
+      "id": "q7",
+      "question": "What thinkers have most influenced my thinking?",
+      "type": "factual",
+      "gold_ids": [
+        "16395d6e725fca4f",
+        "b0c458ea9e03bd84",
+        "5707c953a7fcf81a"
+      ],
+      "gold_source": "auto",
+      "semantic": {
+        "retrieved_ids": [
+          "87d27affda133a56",
+          "644100bd08b745b1",
+          "16395d6e725fca4f",
+          "b0c458ea9e03bd84",
+          "b80d136056a8c39d",
+          "8479b54317034bb6",
+          "179ed78504b15263",
+          "787fb37b83241ebc",
+          "5707c953a7fcf81a",
+          "c7eb8fdfd620c7e6"
+        ],
+        "retrieved_titles": [
+          "Uma Brancura Luminosa: Advertising, Soli",
+          "Jon Fosse: Escape from Advertising and t",
+          "Thus Spoke Zarathustra- Environment and ",
+          "Idea: Thus Spoke Zarathustra- Environmen",
+          "Thus Spoke Zarathustra- Einstein on Idea"
+        ],
+        "confidence": 0.67,
+        "hit_rate": 1.0,
+        "mrr": 0.3333333333333333,
+        "ndcg": 0.5780136823717549,
+        "citation_overlap": 0.0
+      },
+      "graph_traversal": {
+        "retrieved_ids": [
+          "e5eab6418ba4981c",
+          "1a4c9ee4e5488009",
+          "16395d6e725fca4f",
+          "b0c458ea9e03bd84",
+          "0f51bac5cc9ce9e5",
+          "8b1e0a5639d4a4be",
+          "6e008a32d8bc253e",
+          "e34b58f757b6c85d",
+          "5707c953a7fcf81a",
+          "70126be102bc4fc1"
+        ],
+        "retrieved_titles": [
+          "Thus Spoke Zarathustra- Move with the Wo",
+          "Thus Spoke Zarathustra- Rush Against Tim",
+          "Thus Spoke Zarathustra- Environment and ",
+          "Idea: Thus Spoke Zarathustra- Environmen",
+          "Thus Spoke Zarathustra- Moving Forward b"
+        ],
+        "confidence": 0.48,
+        "hit_rate": 1.0,
+        "mrr": 0.3333333333333333,
+        "ndcg": 0.5780136823717549,
+        "citation_overlap": 0.0
+      },
+      "temporal": {
+        "retrieved_ids": [
+          "505ab30fe44cdd4e",
+          "66c4ab9cf9e284ee",
+          "ebdfab07d4697465",
+          "fd5503a6de3fa231",
+          "bf119354eb5520c9",
+          "66e2b8a836f0b528",
+          "38fb36c11af1ba8b",
+          "70df32647e093f03",
+          "a67365ccc5035f1d",
+          "be7ea77f445399e5"
+        ],
+        "retrieved_titles": [
+          "Wiki: All Cards",
+          "Wiki: Never A",
+          "Wiki: Science",
+          "Wiki: Social",
+          "Wiki: Virtue Is"
+        ],
+        "confidence": 0.86,
+        "hit_rate": 0.0,
+        "mrr": 0.0,
+        "ndcg": 0.0,
+        "citation_overlap": 0.0
+      }
+    }
+  ],
+  "summary": {
+    "semantic": {
+      "hit_rate": 0.714,
+      "mrr": 0.417,
+      "ndcg": 0.523,
+      "citation_overlap": 0.0
+    },
+    "graph_traversal": {
+      "hit_rate": 0.714,
+      "mrr": 0.476,
+      "ndcg": 0.51,
+      "citation_overlap": 0.0
+    },
+    "temporal": {
+      "hit_rate": 0.0,
+      "mrr": 0.0,
+      "ndcg": 0.0,
+      "citation_overlap": 0.0
+    }
+  }
+}

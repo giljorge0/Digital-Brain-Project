@@ -11,3 +11,11 @@ llm_profiles.yaml
 __pycache__/
 *.py[cod]
 *$py.class
+data/
+public_html/*.json
+__pycache__/
+data/
+public_html/*.json
+__pycache__/
+private_html/*.json
+private_html/pdfs/

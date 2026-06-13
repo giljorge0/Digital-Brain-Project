@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gil Jorge — Digital Brain</title>
+  <meta name="description" content="Researcher, engineer, and builder. Explore my knowledge graph, notes, and intellectual profile." />
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,500;1,9..144,300;1,9..144,400&family=Newsreader:ital,wght@0,300;0,400;1,300;1,400&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+
+  <!-- D3 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js" defer></script>
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ── Navigation ───────────────────────────────────── -->
+  <header id="site-nav">
+    <a class="nav-brand" href="#about" data-view="about">GJ</a>
+    <nav class="nav-links" role="navigation">
+      <a href="#about"   data-view="about"   class="nav-link active">About</a>
+      <a href="#garden"  data-view="garden"  class="nav-link">Garden</a>
+      <a href="#brain"   data-view="brain"   class="nav-link nav-link--brain">Brain ✦</a>
+      <a href="#profile" data-view="profile" class="nav-link">Profile</a>
+    </nav>
+  </header>
+
+  <!-- ── Views ────────────────────────────────────────── -->
+  <main id="app">
+
+    <!-- About / Landing -->
+    <section id="view-about" class="view view--active" aria-label="About">
+      <div class="about-layout">
+
+        <div class="about-left">
+          <p class="about-eyebrow">
+            <span class="dot-pulse"></span>
+            Available for collaboration
+          </p>
+          <h1 class="about-name">
+            <span class="name-line">Gil</span>
+            <span class="name-line name-line--italic">Jorge</span>
+          </h1>
+          <p class="about-role">Researcher · Engineer · Builder</p>
+          <p class="about-bio">
+            This site is a live export of my digital brain. Work in progress
+          </p>
+
+          <div class="about-links">
+            <a href="https://github.com/giljorge0" class="link-pill" target="_blank" rel="noopener">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
+              GitHub
+            </a>
+            <a href="https://www.instagram.com/giljorge05/" class="link-pill" target="_blank" rel="noopener">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
+              Instagram
+            </a>
+            <a href="https://www.youtube.com/@giljorge7479" class="link-pill" target="_blank" rel="noopener">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.42a2.78 2.78 0 0 0-1.94 2C1 8.11 1 12 1 12s0 3.89.46 5.58a2.78 2.78 0 0 0 1.94 2c1.72.42 8.6.42 8.6.42s6.88 0 8.6-.42a2.78 2.78 0 0 0 1.94-2C23 15.89 23 12 23 12s0-3.89-.46-5.58z"></path><polygon points="9.75 15.02 15.5 12 9.75 8.98 9.75 15.02"></polygon></svg>
+              YouTube
+            </a>
+            <a href="mailto:gljorge11@gmail.com" class="link-pill">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,12 2,6"/></svg>
+              Email
+            </a>
+            <a href="cv_gil.pdf" class="link-pill link-pill--outline" download>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Download CV
+            </a>
+          </div>
+        </div>
+
+        <div class="about-right" aria-hidden="true">
+          <div class="about-counter" id="about-counter">
+            <div class="counter-item">
+              <span class="counter-val" id="cnt-notes">—</span>
+              <span class="counter-label">notes</span>
+            </div>
+            <div class="counter-item">
+              <span class="counter-val" id="cnt-words">—</span>
+              <span class="counter-label">words</span>
+            </div>
+            <div class="counter-item">
+              <span class="counter-val" id="cnt-edges">—</span>
+              <span class="counter-label">connections</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Brain CTA -->
+      <div class="brain-cta-wrap">
+        <button class="brain-cta" data-view="brain" id="brain-cta-btn">
+          <span class="brain-cta-text">Enter My Digital Brain</span>
+          <span class="brain-cta-star">✦</span>
+          <svg class="brain-cta-ring" viewBox="0 0 300 60" preserveAspectRatio="none">
+            <rect class="ring-rect" x="2" y="2" width="296" height="56" rx="4"/>
+          </svg>
+        </button>
+      </div>
+    </section>
+
+    <!-- Garden / Notes -->
+    <section id="view-garden" class="view" aria-label="Knowledge Garden">
+      <div class="section-header">
+        <h2 class="section-title">The Garden</h2>
+        <p class="section-sub" id="garden-count"></p>
+      </div>
+      <div class="garden-controls">
+        <input type="search" id="garden-search" class="search-input" placeholder="Search notes…" aria-label="Search notes" />
+        <div id="cat-filters" class="cat-filters" role="group" aria-label="Category filters"></div>
+      </div>
+      <div id="garden-grid" class="garden-grid"></div>
+    </section>
+
+    <!-- Brain Graph -->
+    <section id="view-brain" class="view view--graph" aria-label="Knowledge Graph">
+      <div id="graph-ui">
+        <div id="graph-header">
+          <span class="graph-title">Digital Brain</span>
+          <span class="graph-meta" id="graph-meta"></span>
+        </div>
+        <div id="graph-search-wrap">
+          <input type="search" id="graph-search" placeholder="Search nodes…" aria-label="Search graph nodes" />
+        </div>
+        <div id="graph-legend">
+          <span class="legend-item"><span class="legend-dot" style="background:var(--c-node-out)"></span>Your notes</span>
+          <span class="legend-item"><span class="legend-dot" style="background:var(--c-node-in)"></span>External</span>
+        </div>
+        <div id="graph-controls">
+          <button class="graph-btn" id="btn-zoom-fit" title="Fit to screen">⊡ Fit</button>
+          <button class="graph-btn" id="btn-freeze" title="Freeze physics">⏸</button>
+          <button class="graph-btn" id="btn-mine" title="Show only my notes">◉ Mine</button>
+        </div>
+      </div>
+      <svg id="graph-svg"></svg>
+      <div id="graph-tooltip" role="tooltip" aria-live="polite"></div>
+    </section>
+
+    <!-- Profile -->
+    <section id="view-profile" class="view" aria-label="Intellectual Profile">
+      <div class="section-header">
+        <h2 class="section-title">Intellectual Profile</h2>
+        <p class="section-sub" id="profile-date"></p>
+      </div>
+      <div id="profile-inner">
+        <div class="profile-description" id="profile-desc"></div>
+        <div class="profile-grid">
+          <div class="profile-card profile-card--topics">
+            <h3 class="card-title">Topical Fingerprint</h3>
+            <div id="topics-chart"></div>
+          </div>
+          <div class="profile-card profile-card--stances">
+            <h3 class="card-title">Stance Map</h3>
+            <div id="stances-list"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Note reader overlay -->
+  <div id="note-reader" class="note-reader" role="dialog" aria-modal="true" aria-label="Note reader" hidden>
+    <div class="reader-header">
+      <button class="reader-back" id="reader-back" aria-label="Back to Garden">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+        Garden
+      </button>
+      <div class="reader-meta" id="reader-meta"></div>
+    </div>
+    <article class="reader-content">
+      <h1 class="reader-title" id="reader-title"></h1>
+      <div class="reader-body" id="reader-body"></div>
+    </article>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

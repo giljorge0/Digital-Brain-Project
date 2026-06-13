@@ -17,6 +17,7 @@ const State = {
   graphMineOnly: false,
   graphSim: null,
   graphZoom: null,
+  graphClusterMode: false,
   graphData: null,      // processed { nodes, links }
 };
 
@@ -455,7 +456,17 @@ function initBrain() {
   const width = () => svg.node().clientWidth;
   const height = () => svg.node().clientHeight;
 
-  // REMOVED GLOW DEFS FOR PERFORMANCE
+  // Lightweight glow filter — single-pass feGaussianBlur, safe at 2000 nodes
+  const defs = svg.append('defs');
+  const glowFilter = defs.append('filter')
+    .attr('id', 'node-glow')
+    .attr('x', '-60%').attr('y', '-60%')
+    .attr('width', '220%').attr('height', '220%');
+  glowFilter.append('feGaussianBlur')
+    .attr('in', 'SourceGraphic').attr('stdDeviation', '2.5').attr('result', 'blur');
+  const feMerge = glowFilter.append('feMerge');
+  feMerge.append('feMergeNode').attr('in', 'blur');
+  feMerge.append('feMergeNode').attr('in', 'SourceGraphic');
 
   const zoom = d3.zoom()
     .scaleExtent([0.1, 10])
@@ -482,6 +493,14 @@ function initBrain() {
     .force('charge', d3.forceManyBody().strength(-150))
     .force('center', d3.forceCenter(cx, cy))
     .force('collision', d3.forceCollide(12))
+    .force("clusterX", d3.forceX(d => {
+        if (!State.graphClusterMode) return cx;
+        return cx + (Math.cos((d.cluster || 0) * 0.5) * 300); 
+    }).strength(d => State.graphClusterMode ? 0.5 : 0.05))
+    .force("clusterY", d3.forceY(d => {
+        if (!State.graphClusterMode) return cy;
+        return cy + (Math.sin((d.cluster || 0) * 0.5) * 300);
+    }).strength(d => State.graphClusterMode ? 0.5 : 0.05))
     .alphaDecay(0.05); // Makes it settle faster
 
   sim.stop(); 
@@ -490,12 +509,23 @@ function initBrain() {
   const linkSel = g.append('g').attr('class', 'links')
     .selectAll('line').data(links).join('line').attr('class', 'link');
 
+  // Normalize centrality so radius is always visible regardless of PageRank scale.
+  // PageRank on 2000 nodes gives values ~0.0002–0.005 — multiply by raw r would give <3px.
+  const maxCentrality = Math.max(...nodes.map(n => n.centrality || 0), 0.0001);
+
   const nodeSel = g.append('g').attr('class', 'nodes')
     .selectAll('circle')
     .data(nodes)
     .join('circle')
-    .attr('r', d => 3 + (d.centrality * 50)) // Sized by importance
+    // sqrt of normalised centrality → compresses the range, small nodes stay visible
+    .attr('r', d => 5 + Math.sqrt((d.centrality || 0) / maxCentrality) * 13)
     .attr('class', d => `node-circle node--${d.role === 'output' ? 'mine' : 'external'}`)
+    // Inline fill & stroke — bypasses the CSS selector mismatch
+    // (CSS was targeting `.node--mine circle` but the circle IS the element)
+    .attr('fill',         d => d.role === 'output' ? '#e8b84b' : '#7b9fd4')
+    .attr('stroke',       d => d.role === 'output' ? 'rgba(240,185,70,0.45)' : 'rgba(110,155,220,0.35)')
+    .attr('stroke-width', 1.5)
+    .attr('filter', 'url(#node-glow)')
     .call(d3.drag()
       .on('start', (event, d) => { if (!event.active && !State.graphFrozen) sim.alphaTarget(0.2).restart(); d.fx = d.x; d.fy = d.y; })
       .on('drag',  (event, d) => { d.fx = event.x; d.fy = event.y; })
@@ -568,6 +598,34 @@ function initBrain() {
       nodeSel.classed('node--dimmed', false);
       linkSel.style('opacity', null);
     }
+  });
+
+  // Cluster Map Toggle
+  $('#btn-cluster')?.addEventListener('click', function() {
+    State.graphClusterMode = !State.graphClusterMode;
+    this.classList.toggle('active', State.graphClusterMode);
+    
+    if (State.graphClusterMode) {
+      this.style.color = '#c8a86b'; // Your cosmic gold
+      this.style.borderColor = 'rgba(200,168,107,0.4)';
+    } else {
+      this.style.color = '';
+      this.style.borderColor = '';
+    }
+    
+    // Automatically unfreeze the graph so the animation plays
+    if (State.graphFrozen) {
+      State.graphFrozen = false;
+      const btnF = $('#btn-freeze');
+      if (btnF) {
+        btnF.classList.remove('active');
+        btnF.innerHTML = '⏸ Freeze';
+      }
+    }
+    
+    // Unpin nodes and wake up physics
+    nodes.forEach(n => { n.fx = null; n.fy = null; });
+    sim.alpha(0.8).restart();
   });
 
   // Graph search — checks title (real data) and label (demo data)
