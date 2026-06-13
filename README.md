@@ -710,8 +710,8 @@ python main.py export-wp --mode both # Push to WordPress
 - [x] **Static export** — GitHub Pages deployment via `export-static`; live at [giljorge0.github.io](https://giljorge0.github.io/)
 - [x] **Two-phase bootstrap** — notes + persona load first; large graph loads non-blocking in Phase 2
 - [ ] ZK proof-of-relevance for privacy-preserving remote recommendations
-- [ ] Emacs org-capture integration (capture → brain in one keystroke)
-- [ ] Mobile-friendly graph view
+- [x] Emacs org-capture integration (capture → brain in one keystroke)
+- [x] Mobile-friendly graph view
 - [ ] Contradiction resolution UI (surface flagged contradictions for manual review)
 - [ ] Persona profile versioning (track how your stances evolve over time)
 - [ ] YouTube transcript ingestion (full semantic indexing of video content)
